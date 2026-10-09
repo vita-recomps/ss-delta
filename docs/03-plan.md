@@ -111,7 +111,11 @@ Carried over (not blocking Phase 2):
   ([02-baseline](02-baseline.md#why-the-arena-floor-is-white-2026-10-10)).
   The MSAA depth texture missed the surface cache because of 32-row tile
   rounding. Fixed by patch 0006.
-  * ☐ Confirm on the RTX 4090 with `dist/ss-delta-ours-update.zip`.
+  * ☑ RTX 4090 round 3: the depth texture now comes from the cache, but
+    the floor is still white. The cause is narrowed to the floor's albedo
+    texture (swizzled UBC1, 10 mips).
+  * ☐ 4090 `diag.bat` (CPU BC decode / base mip only) to tell BC decoding
+    from the mip chain.
 * ☑ Zero-init experiment: done on AMD, with no effect. The cause was
   elsewhere.
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They

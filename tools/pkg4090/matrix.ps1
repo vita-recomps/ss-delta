@@ -6,7 +6,9 @@ param(
     [string[]]$Emu = @('ours', 'upstream', 'plus'),
     [string[]]$Renderer = @('Vulkan', 'OpenGL'),
     [string[]]$Boot = @('Elder', 'Harpy'),
-    [int]$Seconds = 60
+    [int]$Seconds = 60,
+    # diagnostic builds: each variant is an environment variable set to 1 for that run ('none' = no variable)
+    [string[]]$Variants = @('none')
 )
 . (Join-Path $PSScriptRoot 'common.ps1')
 
@@ -14,6 +16,7 @@ param(
 $Emu = @($Emu -split ',' | Where-Object { $_ })
 $Renderer = @($Renderer -split ',' | Where-Object { $_ })
 $Boot = @($Boot -split ',' | Where-Object { $_ })
+$Variants = @($Variants -split ',' | Where-Object { $_ })
 foreach ($e in $Emu) { if (-not $Emulators.Contains($e)) { throw "unknown -Emu $e (ours, upstream, plus)" } }
 foreach ($b in $Boot) { if (-not $BootTargets.Contains($b)) { throw "unknown -Boot $b ($($BootTargets.Keys -join ', '))" } }
 
@@ -33,11 +36,14 @@ try {
     foreach ($e in $Emu) {
         foreach ($r in $Renderer) {
             foreach ($b in $Boot) {
-                $name = "$e-$r-$b"
+              foreach ($v in $Variants) {
+                $name = if ($v -eq 'none') { "$e-$r-$b" } else { "$e-$r-$b-$v" }
                 Write-Host "=== $name" -ForegroundColor Cyan
                 Set-EmulatorConfig $e $r 0
                 Set-BootSequence $BootTargets[$b]
+                if ($v -ne 'none') { Set-Item -Path "env:$v" -Value '1' }
                 $p = Start-Emulator $e $r
+                if ($v -ne 'none') { Remove-Item -Path "env:$v" }
                 $t0 = Get-Date
                 $samples = @()
                 $outcome = 'ok'
@@ -76,8 +82,9 @@ try {
                     $res = "$($samples[-1].W)x$($samples[-1].H)"
                 }
                 if ($outcome -eq 'ok' -and $samples.Count -eq 0) { $outcome = 'no game window / no frames' }
-                "$e,$r,$b,$outcome,$alive,$med,$min,$res" | Out-File $summary -Append -Encoding ascii
+                "$e,$r,$b$(if ($v -ne 'none') { "-$v" }),$outcome,$alive,$med,$min,$res" | Out-File $summary -Append -Encoding ascii
                 Write-Host "    $outcome; median fps $med, min $min"
+              }
             }
         }
     }

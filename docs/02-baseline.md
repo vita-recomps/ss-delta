@@ -480,6 +480,47 @@ compiler; explicit stores work.
 * Plus has this check but still draws white on NVIDIA. **Hypothesis:**
   another Plus change leads elsewhere. Not investigated.
 
+**RTX 4090 round 3 (2026-10-10, `matrix-20261010-015047.zip`, our build with
+patch 0006).** The floor is **still white** on NVIDIA Vulkan, though the
+depth texture now comes from the surface cache: round 2 logged the
+X8U24-from-memory upload on NVIDIA and round 3 doesn't. So patch 0006 fixes
+a real bug, but not the white floor.
+
+**Narrowed further on AMD** by editing the floor shader's cached SPIR-V
+(spirv-cross → GLSL → glslang):
+
+| Change to fragment `9a8f3eb3` | Floor |
+|---|---|
+| shadow gather forced to 0 / 1 | darker / unchanged. The shadow term doesn't make it white |
+| `ILLMINATION_RGBI0`, `Multi0` or `LightWeight1` forced to white | 1–25 % white |
+| `LightWeight0` forced to white | 76 % white |
+| `Albedo0` forced to white | **86 % white, the look of the 4090** (82 %) |
+
+Forcing albedo white also whitens the boss's tentacles, which use the same
+shader with other textures. On the 4090 those look normal. So NVIDIA gets
+**the floor's albedo texture** wrong, not the shader.
+
+The textures (logged on AMD via the debug branch):
+
+| Unit | Address | Size | Format | Mips |
+|---|---|---|---|---|
+| 0 (`Albedo0`) | `0x6304C050` | 512×512 | swizzled UBC1 (DXT1) | 10 |
+| 1 (`ILLMINATION_RGBI0`) | | 1024×1024 | UBC3 | 11 |
+| 2 | | 512×512 | UBC1 | 10 |
+| 6 | | 512×512 | UBC1 | 10 |
+
+All are uploaded from memory, not from cached render targets.
+
+**Next:** a diagnostic run on the 4090. `diag.bat` in
+`dist/ss-delta-ours-update.zip` runs the `debug/floor` build three times:
+* as is;
+* with `SSD_SOFT_BCN` (BC textures decoded on the CPU, Vita3K's path for
+  GPUs without BC support);
+* with `SSD_MAXLOD0` (base mip level only).
+
+A textured floor in one of them points at NVIDIA's BC1 decoding or at the
+mip chain.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no

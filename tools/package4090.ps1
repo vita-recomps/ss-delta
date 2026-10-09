@@ -18,6 +18,11 @@ if ($OursOnly) {
         /XD fs cache shaderlog texturelog gui-configs patch portable screenshots `
         /XF config.yml 'config.yml.*' '*.log' '*.out' '*.ilk' | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+    # the scripts may have changed too
+    $pkg = Join-Path $PSScriptRoot 'pkg4090'
+    New-Item -ItemType Directory -Force (Join-Path $upd 'scripts') | Out-Null
+    Copy-Item (Join-Path $pkg '*.ps1') (Join-Path $upd 'scripts') -Force
+    Copy-Item (Join-Path $pkg '*.bat'), (Join-Path $pkg 'README.txt') $upd -Force
     $zipPath = "$upd.zip"
     if (Test-Path $zipPath) { Remove-Item $zipPath }
     & 'C:\Program Files\7-Zip\7z.exe' a -tzip -mx1 $zipPath "$upd\*" | Out-Null
