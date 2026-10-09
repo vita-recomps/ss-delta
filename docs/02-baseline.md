@@ -548,6 +548,37 @@ AMD reference (white share / mean brightness of the floor region):
 
 On AMD, group 3 supplies the floor's bright highlights.
 
+**4090 diag 2 (2026-10-10, `matrix-20261010-022712.zip`).** Only skipping
+the floor shader itself removes the white (81.5 % → 22.9 %).
+`SSD_HIGH_ACC` and skipping any of the five groups change nothing. So on
+NVIDIA the floor shader `9a8f3eb3` **itself computes white**. Its
+textures, BC decoding, mips and overlays are all ruled out.
+
+**Denormals.** The translator keeps pairs of halves packed in 32-bit float
+registers (`uintBitsToFloat(packHalf2x16(...))`). A pair whose upper half
+is zero or tiny is a 32-bit denormal, and the floor shader has such
+constants: `sa[5].y = 1.70e-41`, `sa[6].x = 2.15e-41`. Vita3K requests no
+float-controls behaviour, so each driver uses its default.
+
+Tests on AMD (the Radeon 760M reports denormal preserve and flush-to-zero
+supported for f16/f32/f64, independence "32BitOnly"):
+
+| Change | Result on AMD |
+|---|---|
+| those constants zeroed by hand | floor black |
+| `SSD_DENORM=preserve` (`DenormPreserve 32` in every shader) | identical to default (0.1–0.2) |
+| `SSD_DENORM=ftz` (`DenormFlushToZero 32`) | geometry explodes (the vertex shaders break), floor still textured |
+
+One earlier `preserve` run looked washed out at 40 s. That was a fade-in
+caught while every shader was being retranslated; at 75 s it matches.
+
+**Hypothesis:** AMD preserves 32-bit denormals by default, which this
+translation needs. NVIDIA flushes some of them, and the floor shader is
+where it shows. Forcing `DenormPreserve 32` on NVIDIA should fix the
+floor. `diag3.bat` (in `dist/ss-delta-ours-update.zip`) runs as is,
+`SSD_DENORM=preserve` and `SSD_DENORM=ftz` for 75 s each, and the log
+prints NVIDIA's float-controls properties.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
