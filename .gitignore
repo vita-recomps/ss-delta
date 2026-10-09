@@ -1,0 +1,48 @@
+# --- Copyrighted game data: NEVER commit anything derived from the dump ---
+rom/
+extracted/
+*.zip
+*.vpk
+*.pkg
+*.self
+*.suprx
+*.elf
+*.bin
+*.rif
+*.pk
+*.pkh
+*.pfs
+*.gxp
+*.gxt
+*.mp4
+
+# Firmware is Sony's: never committed
+*.PUP
+*.pup
+
+# Recompiler output is generated from the game's code -> also never committed
+generated/
+
+# Build output
+build/
+out/
+dist/
+.vs/
+.vscode/
+*.pdb
+*.obj
+*.exe
+
+# Analysis databases contain disassembled game code
+*.gpr
+*.rep/
+/ghidra-projects/
+
+# Python
+__pycache__/
+*.pyc
+
+# Screenshots, captures and logs of game content are never committed
+/*.png
+/*.jpg
+/*.log
