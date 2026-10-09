@@ -55,9 +55,16 @@ first.
   violation and get the call stack.
   * Fix it, or record a workaround, and report it upstream if it is
     Vita3K's bug.
-* ☐ Try the Vita3K-Plus changes for Delta (outlines, floor textures, Mind's
-  Eye) on top of our build.
-  * Record what each fixes in [02-baseline](02-baseline.md).
+* ◐ Vita3K-Plus.
+  * ☑ The v1.2 binary boots on Vulkan here and fixes the black blocks and
+    white floors ([02-baseline](02-baseline.md#vita3k-plus-v12-2026-10-09)).
+  * ☐ Decide whether our fork starts from Vita3K-Plus instead of upstream.
+    Its source is GPL-2.0 too. Diff it against upstream to see how far it has
+    diverged.
+  * ☐ Find which Plus change avoids the AMD Vulkan crash.
+  * ☐ The Vulkan cloak speckle.
+* ☐ Collect the RTX 4090 test results (`dist/ss-delta-vita3k-test.zip`,
+  `run-matrix.bat`) and record them in [02-baseline](02-baseline.md).
 * ☐ Real input for automated runs.
   * Options: a test-only key-injection hook in our fork (preferred: no focus
     stealing), or an SDL virtual joystick.

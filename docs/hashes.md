@@ -15,3 +15,4 @@ comes from Sony's update servers.
 | `PSVUPDAT.PUP` 3.74 (MD5 `f2c7b12fe85496ec88a0391b514d6e3b`, matches its Sony URL) | `6ef6dc8da6db026f28647713e473486d770087a605c52a8d751bfca7478386cf` |
 | `PSP2UPDAT.PUP` font package (MD5 `8b5f60b56c3da8365b973dba570c53a5`, matches its Sony URL) | `f372d306a7f2711125bea29aa75cbcb1eb19724e9648478fba07b8d655b37344` |
 | Vita3K `windows-latest.zip`, build 4152-38bce160 | `664dc3c28a3f2442fada00891d420b6af48f8e7236f5dc9569cd9aca65634b98` |
+| Vita3K-Plus `Vita3k-Plus-v1.2.zip`, build 2-5b040dc4 | `52efb9a5bc4591359c20037bb7971053a4408202a9600bc3c7339321df7e0d5b` |

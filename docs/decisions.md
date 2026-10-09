@@ -73,3 +73,9 @@ Rendering comparisons wait until Phase 1 fixes Vulkan, or until they can be
 run on the RTX 4090 PC.
 
 **Revisit:** when the Vulkan crash is understood.
+
+**Update (2026-10-09):** Vita3K-Plus v1.2 boots on Vulkan on this machine and
+renders the maps correctly, apart from a speckled player cloak. It becomes
+the **rendering reference**. Upstream OpenGL stays the reference for
+behaviour and timing until our own build exists. The RTX 4090 results
+(`dist/ss-delta-vita3k-test`) will show which artifacts are AMD-specific.

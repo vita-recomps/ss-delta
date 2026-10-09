@@ -32,6 +32,7 @@ Vita3K build, and fixing its Vulkan crash on this machine. See the
 | `tools/imix.py` | Capstone instruction-mix sweep over every exidx function |
 | `tools/sfo.py` | print `param.sfo` fields |
 | `tools/v3kdrive.py` | drive the portable Vita3K for baseline runs: launch, `BootSequence`, FPS sampling, background screenshots |
+| `tools/package4090.ps1` | build `dist/ss-delta-vita3k-test` (both Vita3K builds, the installed game, `run-matrix.bat`/`play.bat` from `tools/pkg4090/`) for testing on another PC |
 
 Python dependencies: `pyyaml`, `capstone`, `pycryptodome` (for SELF
 decryption).

@@ -148,6 +148,61 @@ Findings:
 * Whether Vulkan has the black blocks can only be answered on a machine
   where Vulkan boots: the RTX 4090 PC, or this one once the crash is fixed.
 
+## Vita3K-Plus v1.2 (2026-10-09)
+
+[nckstwrt/Vita3K-Plus](https://github.com/nckstwrt/Vita3K-Plus) v1.2 (build
+`2-5b040dc4`, released 2026-09-30) is a fork with fixes for this game. It
+lives in `extracted/vita3k-plus/1.2/`, with `pref-path` set to the same
+`fs/`. Its defaults differ from upstream:
+
+* `high-accuracy: true`;
+* `disable-surface-sync: false` (sync on);
+* `memory-mapping: external-host`.
+
+| Map | Backend | Settings | Result | FPS |
+|---|---|---|---|---|
+| HarpyBattle | Vulkan | Plus defaults | **Boots (no crash) and renders correctly**: textured floor, castle, boss, no black blocks. One artifact: **speckled noise on the player's cloak** | 30 / 29 |
+| ELDER DEFAULT MAP | Vulkan | Plus defaults | Correct field, fog and sky text; same cloak speckle | 30 / 29 |
+| ELDER DEFAULT MAP | Vulkan | `high-accuracy: false` | same, cloak speckle stays | 30 / 29 |
+| ELDER DEFAULT MAP | Vulkan | `memory-mapping: double-buffer` | same, cloak speckle stays | 30 / 29 |
+| HarpyBattle | OpenGL | Plus defaults | Same black blocks and white floor as upstream OpenGL; **cloak clean** | 29 |
+
+Conclusions:
+
+* Plus's renderer fixes are on the **Vulkan path**.
+* Something in Plus (or in upstream since 4152, which we can't test because
+  it crashes) avoids the AMD Vulkan crash. Comparing the two builds shows
+  where the crash lives.
+* The cloak speckle is **Vulkan-specific**, since OpenGL draws the cloak
+  clean. It might be AMD-specific (unknown).
+* For rendering comparisons on this machine, **Vita3K-Plus on Vulkan is the
+  best reference available** ([D4](decisions.md)).
+
+## RTX 4090 test package
+
+`tools/package4090.ps1 [-Zip]` builds `dist/ss-delta-vita3k-test/`
+(3.4 GB, never committed):
+
+* both builds in Vita3K's portable mode;
+* the shared `vitafs/` (the installed game, its licence and firmware);
+* `run-matrix.bat`: an unattended run of emulator × renderer × map, with
+  FPS CSV, screenshots, logs and crash detection, zipped for sending back;
+* `play.bat`: interactive play, with the log and F12 screenshots collected
+  afterwards;
+* a README with instructions.
+
+Scripts are in `tools/pkg4090/` (PowerShell only, so no Python is needed on
+the target).
+
+* **Path handling.** In portable mode upstream Vita3K ignores `pref-path`
+  and always uses `portable\fs` (`config/src/config.cpp:464`). The scripts
+  therefore make each build's `portable\fs` a directory junction to
+  `vitafs\`.
+* **Local check of the package** (Harpy, 40 s; results in
+  `extracted/baseline/package-test/`):
+  * upstream Vulkan crashed (exit code 0xC0000005) after 6 s;
+  * upstream OpenGL, Plus Vulkan and Plus OpenGL ran at 29–30 fps.
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs
