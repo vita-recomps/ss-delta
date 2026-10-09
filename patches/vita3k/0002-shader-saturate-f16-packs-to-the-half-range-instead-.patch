@@ -1,7 +1,7 @@
 From 26a08083bbf1513fee9a4e6c6279c604e2a626de Mon Sep 17 00:00:00 2001
 From: alex <49746433+Master-Yoba@users.noreply.github.com>
 Date: Fri, 9 Oct 2026 22:55:32 +0200
-Subject: [PATCH 2/3] shader: saturate f16 packs to the half range instead of
+Subject: [PATCH 2/5] shader: saturate f16 packs to the half range instead of
  overflowing to Inf
 
 Ported from Vita3K-Plus 105331d9 ("Fix MotoGP 14's black bike issue

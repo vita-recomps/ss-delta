@@ -38,7 +38,7 @@ and [D1](decisions.md):
 **Exit:** met. The game boots in our Vita3K, its behaviour is recorded, and
 decrypted ELFs and hashes exist.
 
-## Phase 1 — Vita3K from source (M) ◐
+## Phase 1 — Vita3K from source (M) ☑
 
 We will patch Vita3K heavily, so we need our own build and a debugger on it
 first.
@@ -59,11 +59,12 @@ first.
   * Fixed by patch 0002 (Plus's f16 saturation).
   * Patch 0003 (repack odd vertex strides) fixes the exploded geometry
     that followed.
-  * ☐ Report both upstream: the AMD trigger to Vita3K (and AMD), and
-    patches 0002/0003 as PRs.
-* ☐ The remaining misaligned vertex attribute: `R16G16_UINT` at an odd
-  offset. **Hypothesis:** this is the cloak speckle on AMD, which Plus has
-  too.
+  * ☐ Report upstream: the AMD trigger to Vita3K (and AMD), and patches
+    0002–0004 as PRs. **Deferred** by the owner until later (2026-10-09).
+* ☑ The remaining misaligned vertex attribute (`R16G16_UINT` at an odd
+  offset) was the cloak speckle. Patch 0004 repacks any stream Vulkan
+  can't fetch in place. The cloak is now correct on AMD, which Plus doesn't
+  manage, and the validation layer reports no misalignment.
 * ☐ Retest our fork on the RTX 4090. Does patch 0003 also fix the white
   Walhalla floor there?
 * ◐ Vita3K-Plus.
@@ -91,12 +92,23 @@ first.
     compare the Walhalla floor on the RTX 4090.
   * A fix here would be upstreamable, and every Vita3K user of this game
     would benefit.
-* ☐ Real input for automated runs.
-  * Options: a test-only key-injection hook in our fork (preferred: no focus
-    stealing), or an SDL virtual joystick.
+* ☑ Real input for automated runs.
+  * Patch 0005 adds a test-only named pipe (`VITA3K_INPUT_PIPE`) that holds
+    buttons and sticks. `tools/v3kdrive.py` uses it automatically.
+  * Verified without focus: the title goes to the main menu and New Game
+    opens the save dialog; `ls_up` walks the player on the field map.
 
-**Exit:** our own Vita3K build reaches gameplay on Vulkan on this machine
-(☑ 2026-10-09, field and arena at 30 fps), and input can be scripted (☐).
+**Exit:** met 2026-10-09. Our build reaches gameplay on Vulkan on this
+machine (field and arena at 30 fps, rendered correctly), and input is
+scripted without focus.
+
+Carried over (not blocking Phase 2):
+* the Debug build;
+* the RTX 4090 retest of our fork;
+* the zero-init experiment (only if the 4090 still shows the white floor);
+* porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They
+  concern depth and MSAA reads at higher resolutions, so they move to
+  Phase 7/8 unless the 4090 retest shows a need.
 
 ## Phase 2 — Static analysis and inventory (M) ☐
 

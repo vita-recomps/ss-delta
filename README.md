@@ -10,10 +10,10 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 
 ## Status
 
-Phase 0 (workspace, decryption, baseline) is done. Phase 1 is in progress:
-our Vita3K fork builds, and with two patches it runs the game on Vulkan on
-this machine's AMD GPU at 30 fps (upstream crashes there). Scripted input is
-next. See the [plan](docs/03-plan.md).
+Phases 0 and 1 are done. Our Vita3K fork runs the game on Vulkan on this
+machine's AMD GPU, which upstream can't, and renders it correctly at 30 fps.
+Automated runs can press buttons without taking focus. Next is Phase 2
+(static analysis and inventory). See the [plan](docs/03-plan.md).
 
 ## Documentation
 

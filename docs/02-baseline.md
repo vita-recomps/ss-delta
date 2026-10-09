@@ -154,9 +154,20 @@ Vulkan, Radeon 760M, default config:
 * the Walhalla arena floor is **textured**;
 * title, field and arena run at 30 fps with no crashes.
 
-**Left:** the cloak speckle, the same as Plus on this GPU. The validation
-layer still reports one misaligned attribute, an `R16G16_UINT` at an odd
-offset within an aligned stride. **Hypothesis:** this is the cloak.
+**Cloak (run 22).** The last misaligned attribute, an `R16G16_UINT` at an
+odd offset within an aligned stride, was the cloak. Patch 0004 gives every
+stream that Vulkan can't fetch in place a repacked layout, with each
+attribute 4-aligned.
+* The cloak is now solid on AMD; Plus still speckles it.
+* The validation layer reports no misalignment.
+* One validation message remains in the arena: a depth image is in
+  `ATTACHMENT_OPTIMAL` where `READ_ONLY_OPTIMAL` is expected. This is an
+  upstream sync issue with no visible effect so far.
+
+**Input (2026-10-09).** Patch 0005 plus `tools/v3kdrive.py` drive the game
+without focus:
+* title → main menu → New Game → save-data dialog;
+* `hold:ls_up:3000` walks the player.
 
 ### Takeaways
 
