@@ -1,0 +1,59 @@
+From 26a08083bbf1513fee9a4e6c6279c604e2a626de Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 22:55:32 +0200
+Subject: [PATCH 2/3] shader: saturate f16 packs to the half range instead of
+ overflowing to Inf
+
+Ported from Vita3K-Plus 105331d9 ("Fix MotoGP 14's black bike issue
+(clamp correctly to NaN)") by nckstwrt; only the usse_utilities.cpp part.
+make_f16_pack_func now clamps to +-65504 before packHalf2x16, keeping NaNs.
+
+Besides the MotoGP fix it was made for, this avoids an AMD Vulkan driver
+crash (amdvlk64.dll, Radeon 760M, drivers 2.0.373 and 2.0.395) in
+vkCreateGraphicsPipelines. The crash needs a fragment shader that reads
+the low half of packHalf2x16(texture sample) back with unpackHalf2x16 and
+uses it in the output; Soul Sacrifice Delta hits it within seconds of boot.
+
+Bumps shader::CURRENT_VERSION to 14 so cached SPIR-V is regenerated.
+
+Co-Authored-By: nckstwrt <nick.g.stewart@gmail.com>
+---
+ vita3k/shader/include/shader/spirv_recompiler.h | 2 +-
+ vita3k/shader/src/usse_utilities.cpp            | 8 ++++++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/vita3k/shader/include/shader/spirv_recompiler.h b/vita3k/shader/include/shader/spirv_recompiler.h
+index 68e304d0..58db58f0 100644
+--- a/vita3k/shader/include/shader/spirv_recompiler.h
++++ b/vita3k/shader/include/shader/spirv_recompiler.h
+@@ -31,7 +31,7 @@ namespace shader {
+ static constexpr int COLOR_ATTACHMENT_TEXTURE_SLOT_IMAGE = 0;
+ static constexpr int MASK_TEXTURE_SLOT_IMAGE = 1;
+ static constexpr int COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE = 3;
+-static constexpr uint32_t CURRENT_VERSION = 13;
++static constexpr uint32_t CURRENT_VERSION = 14;
+ // fragment shader using the rendering surface as a storage image (because of shader interlock) have a line
+ // layout (constant_id = GAMMA_CORRECTION_SPECIALIZATIO_ID) const bool is_srgb = false;
+ // Setting this constant to true performs gamma correction in the shader
+diff --git a/vita3k/shader/src/usse_utilities.cpp b/vita3k/shader/src/usse_utilities.cpp
+index 8ae6b391..87995cf5 100644
+--- a/vita3k/shader/src/usse_utilities.cpp
++++ b/vita3k/shader/src/usse_utilities.cpp
+@@ -491,6 +491,14 @@ static spv::Function *make_f16_pack_func(spv::Builder &b, const SpirvUtilFunctio
+     f16_pack_func->addParamPrecision(0, spv::DecorationRelaxedPrecision);
+     spv::Id extracted = f16_pack_func->getParamId(0);
+ 
++    // saturate rather than overflow to Inf
++    const spv::Id half_max = b.makeFloatConstant(65504.0f);
++    const spv::Id half_min = b.makeFloatConstant(-65504.0f);
++    const spv::Id saturated = b.createBuiltinCall(type_f32_v2, utils.std_builtins, GLSLstd450FClamp,
++        { extracted, b.makeCompositeConstant(type_f32_v2, { half_min, half_min }), b.makeCompositeConstant(type_f32_v2, { half_max, half_max }) });
++    const spv::Id is_nan = b.createUnaryOp(spv::OpIsNan, b.makeVectorType(b.makeBoolType(), 2), extracted);
++    extracted = b.createTriOp(spv::OpSelect, type_f32_v2, is_nan, extracted, saturated);
++
+     // use packHalf2x16
+     extracted = b.createBuiltinCall(type_ui32, utils.std_builtins, GLSLstd450PackHalf2x16, { extracted });
+     extracted = b.createUnaryOp(spv::OpBitcast, type_f32, extracted);
+-- 
+2.56.0.windows.2
+

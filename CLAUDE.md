@@ -26,10 +26,14 @@ conventions.
   Bash) is also available.
 - Portable Vita3K: `extracted/vita3k/` (`pref-path` = `fs/`). The installed
   game is in `fs/ux0/app/PCSA00152`. Firmware 3.74 is installed.
-- Vulkan is the renderer to build on ([D4](docs/decisions.md) update 2).
-  Upstream Vulkan crashes at boot on this machine's Radeon 760M (inside
-  `amdvlk64.dll`); Vita3K-Plus v1.2 (`extracted/vita3k-plus/1.2/`) runs on
-  Vulkan here.
+- Vulkan is the renderer ([D4](docs/decisions.md) update 3). Our fork runs it
+  on this machine's Radeon 760M; the upstream release in `extracted/vita3k`
+  still crashes there (AMD compiler bug, see `docs/02-baseline.md`).
+- Our build keeps its own config, shader cache and log next to its exe
+  (`build/vita3k/bin/RelWithDebInfo/`); only `pref-path` points at the
+  shared `extracted/vita3k/fs/`. Edits to cached `.spv` files must go there.
+  `BootSequence` is set through the shared install:
+  `python -I tools/v3kdrive.py extracted/vita3k bootseq PCSA00152 <name>`.
 - Our Vita3K fork: `third_party/vita3k`, a nested git clone on branch
   `ss-delta` ([D5](docs/decisions.md)), with Plus as remote `plus`. Build it
   with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,

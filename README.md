@@ -11,8 +11,9 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 ## Status
 
 Phase 0 (workspace, decryption, baseline) is done. Phase 1 is in progress:
-our own Vita3K fork builds and boots the game on OpenGL; the Vulkan crash on
-this machine is traced to AMD's driver. See the [plan](docs/03-plan.md).
+our Vita3K fork builds, and with two patches it runs the game on Vulkan on
+this machine's AMD GPU at 30 fps (upstream crashes there). Scripted input is
+next. See the [plan](docs/03-plan.md).
 
 ## Documentation
 

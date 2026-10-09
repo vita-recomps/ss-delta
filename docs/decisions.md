@@ -93,6 +93,11 @@ GPU vendor. No combination is correct on both GPUs.
   [02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
 * OpenGL is no longer used for rendering judgements.
 
+**Update 3 (2026-10-09):** our fork (patches 0002 and 0003) runs Vulkan on
+the Radeon 760M. It renders the field correctly and the Walhalla floor
+textured. **Our fork on Vulkan is now the reference on this machine.** Plus
+stays as a cross-check. The NVIDIA reference needs a retest with our fork.
+
 ## D5 — Fork upstream Vita3K, not Vita3K-Plus; cherry-pick from Plus (accepted, 2026-10-09)
 
 **Context:** Phase 1 needs a Vita3K source tree we build and patch. Plus v1.2

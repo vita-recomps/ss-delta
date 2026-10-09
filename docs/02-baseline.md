@@ -81,45 +81,87 @@ Artifacts are in `extracted/baseline/` (never committed): `fps.csv`,
   patch), which names the Vita3K call that hands the driver the bad
   input.
 
-#### Our build (2026-10-09): the crash is driver state, not one pipeline
+#### Our build (2026-10-09): the AMD Vulkan crash is found and fixed
 
-Our build is upstream `b75d5e62` plus a stack-trace patch
-([D5](decisions.md), `patches/vita3k/`). It boots to the title on OpenGL at
-29–30 fps, like the release.
+Our build is upstream `b75d5e62` plus our patches ([D5](decisions.md),
+`patches/vita3k/`). It boots to the title on OpenGL at 29–30 fps, like the
+release.
 
-On Vulkan, the stack shows the render thread in
-`PipelineCache::compile_pipeline` (`pipeline_cache.cpp:923`) →
-`vkCreateGraphicsPipelines` → validation layer → `amdvlk64.dll+0x2B12324`.
-A temporary logging branch (`debug/amd-pipeline-crash` in the fork) named
-each pipeline before creation:
+**Where it crashed.** The stack shows the render thread in
+`PipelineCache::compile_pipeline` → `vkCreateGraphicsPipelines` →
+validation layer → `amdvlk64.dll`. A temporary logging branch
+(`debug/amd-pipeline-crash` in the fork) named each pipeline before
+creation. The crashing pipeline depends on the boot target:
 
-| Test | Result |
+* title: vertex `ab9c7561…` + fragment `61f0d854…`;
+* Elder map: vertex `f1340375…` + fragment `f5ccb166…`.
+
+**Driver update.** On 2026-10-09 the driver went from 32.0.22029.9039
+(Vulkan 2.0.373, Dec 2025) to 32.0.31041.1004 (Vulkan 2.0.395,
+2026-08-17). The crash is the same, so the newer AMD driver has the same
+bug.
+
+**Bisection.** Our build keeps its own shader cache next to its exe
+(`build/vita3k/bin/RelWithDebInfo/cache/`), and Vita3K loads `.spv` files
+from it by hash. So edited SPIR-V can be tested without rebuilding.
+
+> **Correction.** The first round of shader edits went into the
+> *release's* cache (`extracted/vita3k/cache`), which our build never
+> reads. Those results ("fragment emptied / vertex emptied / trivial
+> shaders → still crashes") were invalid, and the conclusion drawn from
+> them ("driver state, not the pipeline") was wrong. These earlier tests
+> did not touch shaders and stand:
+> * the layout swap (crash);
+> * no `VkPipelineCache` (crash);
+> * skipping the pipeline (the next pipeline with the same pattern
+>   crashes).
+
+The redone bisection, on the Elder map with fragment `f5ccb166`:
+
+| Fragment shader variant | Result |
 |---|---|
-| Sync or async compilation | always the 7th pipeline: vertex `ab9c7561…` + fragment `61f0d854…` (triangle strip, 4 attributes, framebuffer read through an input attachment) |
-| Fragment `main` emptied | crash |
-| Vertex `main` emptied | crash |
-| Both replaced by trivial GLSL shaders (no resources) | crash |
-| Plus the previous good pipeline's layout (fragment textures 3 → 2) | crash. All logged state now matches the previous pipeline, which compiled |
-| Plus no `VkPipelineCache` | crash |
-| Skip this pipeline | the **next new pipeline** crashes (`f1340375…`/`f5ccb166…`, which Plus compiles fine on this GPU) |
+| original, or round-tripped through `spirv-cross`/glslang | crash |
+| trivial shader | compiles (the crash moves to the next pipeline with the pattern: `fd8e9c7b` + `49d92568`) |
+| trivial *vertex* shader, original fragment | crash |
+| `primary_program` or `frag_output_finalize` call removed | compiles |
+| `pack4xU8`/`unpack4xU8` as shifts, no `round`, `mediump` removed | crash |
+| texture 1 not sampled, or the alpha factor a constant | compiles |
+| factor taken from the **green** half instead of the red one | compiles |
+| Vita3K-Plus's `pack2xF16` (clamp to ±65504, keep NaN), or just the clamp | **compiles** |
 
-* **Conclusion:** after six pipelines, `vkCreateGraphicsPipelines` on
-  amdvlk 32.0.22029.9039 (Adrenalin 25.12.1) crashes whatever the pipeline
-  contains. Two explanations remain open:
-  * a driver bug triggered by earlier API use;
-  * Vita3K corrupting driver-owned memory before that point.
-* Plus avoids it on the same driver. It uses fragment-shader interlock
-  instead of input attachments, and it never issued this draw. Upstream
-  with `high-accuracy: true` also uses interlock (run 11) and still crashed.
-  So Plus's escape is something else in its 167 commits.
-* **Next:** update the driver to Adrenalin 26.8.1. If the crash goes, it was
-  the driver. If not, look for what Vita3K does to the device before the
-  7th pipeline.
+* **Trigger (AMD compiler bug).** A fragment shader that takes a texture
+  sample, packs it with `packHalf2x16`, reads the *low* half back with
+  `unpackHalf2x16(...).x`, and uses it in the output. All three crashing
+  shaders do this: `vec4(1, 1, 1, a) * colour` with `a` from a texture's
+  red channel.
+* **Fix.** Vita3K-Plus `105331d9`, made for MotoGP 14, clamps the value
+  before `packHalf2x16`. That breaks the pattern. It is ported as fork
+  patch 0002, with the shader cache version bumped to 14.
+
+**After the crash: exploded geometry.** With patch 0002 the game runs at 30
+fps on Vulkan with no crashes. The world geometry was still exploded into
+huge flat triangles in every `memory-mapping` mode, while the HUD and
+OpenGL were correct.
+* The validation layer reported `misaligned attribAddress`: the game uses
+  vertex strides that aren't a multiple of 4.
+* NVIDIA tolerates this; AMD fetches garbage.
+* Patch 0003 repacks such streams on all platforms. This is the same idea
+  as Plus `35cbde8d`, and upstream only did it on Apple.
+
+**Result (runs 20–21, 2026-10-09).** Upstream plus patches 0002 and 0003,
+Vulkan, Radeon 760M, default config:
+* the field (`ELDER DEFAULT MAP`) renders like Plus;
+* the Walhalla arena floor is **textured**;
+* title, field and arena run at 30 fps with no crashes.
+
+**Left:** the cloak speckle, the same as Plus on this GPU. The validation
+layer still reports one misaligned attribute, an `R16G16_UINT` at an odd
+offset within an aligned stride. **Hypothesis:** this is the cloak.
 
 ### Takeaways
 
-1. **Vulkan is unusable on this AMD iGPU.** It crashed at boot in all three
-   attempts.
+1. **Vulkan was unusable on this AMD iGPU** (crashed at boot in all three
+   attempts). Fixed in our fork since; see "Our build" above.
    * The same symptom appears in Vita3K compatibility reports ("crash before
      the logos on Vulkan" on Windows 11 and on the Steam Deck, which is also
      AMD).

@@ -51,15 +51,21 @@ first.
   needed. A clean RelWithDebInfo build takes 8.7 min.
 * ◐ RelWithDebInfo with PDBs: ☑ boots to the title on OpenGL at 29–30 fps.
   ☐ Debug build.
-* ◐ **Root-cause the Vulkan crash** on the Radeon 760M
-  ([02-baseline](02-baseline.md#our-build-2026-10-09-the-crash-is-driver-state-not-one-pipeline)).
-  * ☑ Call stack: `vkCreateGraphicsPipelines` inside `amdvlk64.dll`, from
-    `PipelineCache::compile_pipeline`.
-  * ☑ It isn't the pipeline's content. Trivial shaders still crash, and
-    skipping the pipeline moves the crash to the next one.
-  * ☐ Retest on Adrenalin 26.8.1 (currently 25.12.1).
-  * ☐ Fix it, or record a workaround, and report it upstream if it is
-    Vita3K's bug.
+* ☑ **Root-cause the Vulkan crash** on the Radeon 760M
+  ([02-baseline](02-baseline.md#our-build-2026-10-09-the-amd-vulkan-crash-is-found-and-fixed)).
+  * It is an AMD shader-compiler crash in `vkCreateGraphicsPipelines`, on
+    a texture sample packed with `packHalf2x16` whose low half is read back.
+    Present in drivers 2.0.373 and 2.0.395.
+  * Fixed by patch 0002 (Plus's f16 saturation).
+  * Patch 0003 (repack odd vertex strides) fixes the exploded geometry
+    that followed.
+  * ☐ Report both upstream: the AMD trigger to Vita3K (and AMD), and
+    patches 0002/0003 as PRs.
+* ☐ The remaining misaligned vertex attribute: `R16G16_UINT` at an odd
+  offset. **Hypothesis:** this is the cloak speckle on AMD, which Plus has
+  too.
+* ☐ Retest our fork on the RTX 4090. Does patch 0003 also fix the white
+  Walhalla floor there?
 * ◐ Vita3K-Plus.
   * ☑ The v1.2 binary boots on Vulkan here and fixes the black blocks and
     white floors ([02-baseline](02-baseline.md#vita3k-plus-v12-2026-10-09)).
@@ -68,8 +74,9 @@ first.
   * ☐ Port its two fixes for this game (`98a65bff` depth, `d248beee` MSAA
     outlines). Neither applies cleanly on upstream; both build on earlier
     Plus surface-cache changes.
-  * ☐ Find which Plus change avoids the AMD Vulkan crash.
-  * ☐ The Vulkan cloak speckle.
+  * ☑ Find which Plus change avoids the AMD Vulkan crash: `105331d9`
+    (f16 saturation, patch 0002), plus `35cbde8d`'s stride repacking
+    (patch 0003) for correct geometry.
 * ☑ Collect the RTX 4090 test results and record them in
   [02-baseline](02-baseline.md#rtx-4090-results-2026-10-09).
   * No crashes, 30 fps.
@@ -88,8 +95,8 @@ first.
   * Options: a test-only key-injection hook in our fork (preferred: no focus
     stealing), or an SDL virtual joystick.
 
-**Exit:** our own Vita3K build reaches gameplay on Vulkan on this machine, and
-input can be scripted.
+**Exit:** our own Vita3K build reaches gameplay on Vulkan on this machine
+(☑ 2026-10-09, field and arena at 30 fps), and input can be scripted (☐).
 
 ## Phase 2 — Static analysis and inventory (M) ☐
 
