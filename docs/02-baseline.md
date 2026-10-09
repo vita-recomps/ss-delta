@@ -55,7 +55,7 @@ Artifacts are in `extracted/baseline/` (never committed): `fps.csv`,
 | 4 | Vulkan | HarpyBattle | **Same crash** about 3.4 s after device creation, right after opening the `magic_effect_*` archives. Six title samples at 16 fps before it died | — |
 | 5 | Vulkan + `memory-mapping: disabled` | HarpyBattle | **Hard crash**; the log stops mid-line during module loading | — |
 | 6 | OpenGL | `DebugMenu` | Dev "SELECT SEQUENCE MODULE" menu, 17 entries, renders correctly | 30 |
-| 7 | OpenGL | `ELDER DEFAULT MAP` | In field: terrain, rocks and character drawn but **heavily overexposed/washed out**, with black quads in the sky | 30 / 29 |
+| 7 | OpenGL | `ELDER DEFAULT MAP` | In field: terrain, rocks and character drawn but **heavily overexposed/washed out**, with black quads in the sky. The overexposure did not reproduce in later runs (see the settings test) | 30 / 29 |
 
 ### Takeaways
 
@@ -100,6 +100,53 @@ Artifacts are in `extracted/baseline/` (never committed): `fps.csv`,
    * A native port has to replace or recompile all of these, not just the
      game's own four modules. **Font rendering (pvf/ft2) and AvPlayer are
      firmware code.**
+
+## OpenGL settings test (2026-10-09)
+
+Question: are the OpenGL rendering bugs caused by Vita3K's defaults (surface
+sync off, high accuracy off)?
+
+Every run uses OpenGL, a screenshot at about 45 s, and an idle player. Logs
+are `logs/gltest-*.log`; screenshots are `gltest-*.png`.
+
+| Map | `disable-surface-sync` | `high-accuracy` | Overexposure | Black blocks | White floor | FPS |
+|---|---|---|---|---|---|---|
+| ELDER DEFAULT MAP | false (sync on) | false | none | yes | — | 29–30 |
+| ELDER DEFAULT MAP | true | true | none | yes | — | 29–30 |
+| ELDER DEFAULT MAP | false | true | none | yes | — | 27–30 |
+| ELDER DEFAULT MAP | true (default) | false (default) | **none** (control, 2 runs) | yes | — | 29–30 |
+| HarpyBattle | true (default) | false (default) | — | yes | **yes** | 29–30 |
+| HarpyBattle | false | true | — | yes | **yes** | 29–31 |
+
+Findings:
+
+1. **The overexposure in run 7 did not come back**, even with the same
+   default settings.
+   * Run 7 was the first time that map ever loaded: it logged 7 shader
+     generations, against 0 in the reruns.
+   * **Hypothesis:** frames drawn while Vita3K was still generating shaders,
+     not a steady-state bug.
+2. **The black blocks appear in every OpenGL run, whatever the settings.**
+   * They are large screen-space quads, and their shape changes between
+     frames.
+   * loktar00 saw "blocky fog/particle artifacts" on Vulkan that
+     `high-accuracy: true` removed. On OpenGL it does not help.
+   * **Hypothesis:** a fog/particle blend or format path that is wrong only
+     in the GL backend.
+3. **The white floor in Walhalla appears with every setting** and with a
+   warm cache.
+   * It matches the bug Vita3K-Plus v1.2 fixed for Delta ("floor textures
+     rendered white" in the Resplendent Rapunzel and Training Room maps).
+   * So it is probably a Vita3K renderer bug, not specific to OpenGL.
+4. **Surface sync and high accuracy cost nothing visible here.** The game
+   stays at 30 fps at 1× resolution.
+
+**Conclusion:** the settings don't fix OpenGL.
+
+* The remaining OpenGL problems (black blocks, white floors) need renderer
+  work, either from Vita3K-Plus or our own.
+* Whether Vulkan has the black blocks can only be answered on a machine
+  where Vulkan boots: the RTX 4090 PC, or this one once the crash is fixed.
 
 ## Not measured yet
 
