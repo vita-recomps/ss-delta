@@ -415,6 +415,76 @@ without the Vulkan SDK behave the same.
 * The question for round 2: does our fork also fix the white Walhalla floor
   on NVIDIA?
 
+### Round 2 results (2026-10-10, `matrix-20261010-005119.zip`)
+
+All 12 runs passed: no crashes, 29–30 fps median, RTX 4090 (driver 610.62)
+in every run.
+* **Field (Elder):** our fork on Vulkan renders it correctly, solid cloak
+  included.
+* **Walhalla arena:** the floor is white in **every** combination, Plus
+  OpenGL included (in round 1 Plus OpenGL showed it desaturated). Patches
+  0002–0005 don't affect it.
+
+Floor whiteness (share of white pixels in the floor region, 60 s shot):
+
+| Build | Vulkan | OpenGL |
+|---|---|---|
+| ours | 82 % | 92 % |
+| upstream | 82 % | 89 % |
+| Plus | 82 % | 85 % |
+
+### Why the arena floor is white (2026-10-10)
+
+Across both rounds, only AMD Vulkan draws the floor textured. AMD OpenGL,
+NVIDIA Vulkan and NVIDIA OpenGL all draw it white. Investigated on the mini
+PC with a debug branch in the fork (`debug/amd-pipeline-crash`: toggles
+`SSD_SKIP_FRAGS`, `SSD_ZERO_REGS`, and logging).
+
+**Ruled out:**
+
+| Suspect | Test on AMD Vulkan | Result |
+|---|---|---|
+| Rasterization-order attachment access (AMD has it, NVIDIA doesn't) | turned off | floor still textured |
+| 3-component vertex formats (AMD-only rgba fallback) | logged | AMD supports all of them; path unused |
+| Reads of unset shader registers | every register bank zero-initialised | floor still textured |
+
+Zero-initialising through an `OpVariable` initializer crashes AMD's
+compiler; explicit stores work.
+
+**Found:**
+* Bisecting draws by fragment shader (skip lists, screenshots compared by
+  region) gives the floor shader: fragment **`9a8f3eb3`** (14 textures)
+  with vertex `9ecd8510`.
+  * It samples `Albedo0`, `ILLMINATION_RGBI0`, `Multi0` and
+    `LightWeight0/1`.
+  * It `textureGather`s `ShadowMap0` and compares the samples with the
+    fragment's projected depth.
+* `ShadowMap0` is the main **4× MSAA depth buffer**: a tiled X8U24 texture,
+  1472×832, at `0x60DC0080`.
+  * The cached depth surface there is 1440×816 samples. The texture covers
+    816 rows rounded up to the 32-row tile.
+  * Upstream's containment check (`retrieve_depth_stencil_as_texture`)
+    rejects it. Vita3K then reads the texture from guest memory, which
+    doesn't hold the GPU's depth.
+  * Each path converts those bytes differently: AMD Vulkan to F32, NVIDIA
+    Vulkan as native X8D24, OpenGL with a conversion its own code marks
+    "TODO: this is wrong". The OpenGL backend never looks depth textures up
+    in its surface cache at all.
+* **Fix: fork patch 0006.** Tiled depth/stencil surfaces count as whole
+  32-row tiles, the tiled-row part of Plus `98a65bff`.
+  * On AMD the lookup now hits the surface cache; no X8U24 upload from
+    memory remains.
+  * The floor is unchanged (region difference 0.3).
+  * **Hypothesis:** this fixes the NVIDIA white floor. To verify on the
+    RTX 4090 with `dist/ss-delta-ours-update.zip`.
+* Plus has this check but still draws white on NVIDIA. **Hypothesis:**
+  another Plus change leads elsewhere. Not investigated.
+
+**Intermittent guest fault (2026-10-10).** One arena run of the patched
+build stopped after a guest invalid read at PC `0x8180cc02` (a load
+through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
+earlier log has one. To watch for in Phase 4's differential runs.
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs

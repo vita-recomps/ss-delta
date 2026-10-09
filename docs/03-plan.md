@@ -105,10 +105,15 @@ machine (field and arena at 30 fps, rendered correctly), and input is
 scripted without focus.
 
 Carried over (not blocking Phase 2):
-* the RTX 4090 retest of our fork: round-2 package built 2026-10-09
-  (`dist/ss-delta-vita3k-test.zip`, 4.19 GB, `ours` + upstream + Plus,
-  12 runs), waiting for the owner to run it;
-* the zero-init experiment (only if the 4090 still shows the white floor);
+* ☑ RTX 4090 round 2 (2026-10-10): 12/12 ok, 30 fps. The arena floor is
+  still white on NVIDIA in every build.
+* ☑ White floor root-caused on the mini PC
+  ([02-baseline](02-baseline.md#why-the-arena-floor-is-white-2026-10-10)).
+  The MSAA depth texture missed the surface cache because of 32-row tile
+  rounding. Fixed by patch 0006.
+  * ☐ Confirm on the RTX 4090 with `dist/ss-delta-ours-update.zip`.
+* ☑ Zero-init experiment: done on AMD, with no effect. The cause was
+  elsewhere.
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They
   concern depth and MSAA reads at higher resolutions, so they move to
   Phase 7/8 unless the 4090 retest shows a need.

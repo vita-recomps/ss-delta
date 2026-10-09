@@ -1,7 +1,7 @@
 From dfac079bcf2b700bc1a99200a7abb66e5ca39e96 Mon Sep 17 00:00:00 2001
 From: alex <49746433+Master-Yoba@users.noreply.github.com>
 Date: Fri, 9 Oct 2026 23:08:10 +0200
-Subject: [PATCH 3/5] renderer/vulkan: repack vertex streams whose stride is
+Subject: [PATCH 3/6] renderer/vulkan: repack vertex streams whose stride is
  not a multiple of 4 on all platforms
 
 Vulkan requires every vertex attribute address (offset + stride * index)

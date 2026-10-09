@@ -1,7 +1,7 @@
 From 7de912912e337544543e5da2401bc1f89bbe97dc Mon Sep 17 00:00:00 2001
 From: alex <49746433+Master-Yoba@users.noreply.github.com>
 Date: Fri, 9 Oct 2026 23:20:43 +0200
-Subject: [PATCH 4/5] renderer/vulkan: repack vertex streams with misaligned
+Subject: [PATCH 4/6] renderer/vulkan: repack vertex streams with misaligned
  attribute offsets
 
 Generalises the stride repacking. Vulkan also requires each attribute's

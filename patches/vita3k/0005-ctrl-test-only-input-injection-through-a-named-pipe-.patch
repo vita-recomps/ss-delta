@@ -1,7 +1,7 @@
 From ab27092bb0347b129e75e3b0c9ea82ebb9edde7d Mon Sep 17 00:00:00 2001
 From: alex <49746433+Master-Yoba@users.noreply.github.com>
 Date: Fri, 9 Oct 2026 23:28:34 +0200
-Subject: [PATCH 5/5] ctrl: test-only input injection through a named pipe
+Subject: [PATCH 5/6] ctrl: test-only input injection through a named pipe
  (Windows)
 
 When VITA3K_INPUT_PIPE is set, a thread serves \.\pipe\<value> (local

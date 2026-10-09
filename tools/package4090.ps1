@@ -1,12 +1,30 @@
 # Build dist\ss-delta-vita3k-test: our Vita3K fork, upstream and Vita3K-Plus in portable mode, the shared
 # Vita file system (installed game + licence + firmware) and the test scripts.
 # The output contains the owner's decrypted dump: it is for the owner's own PCs only.
+#
+# -OursOnly builds dist\ss-delta-ours-update.zip instead: only the program files of our fork
+# (vita3k-ours\ without portable\), to unpack over an existing package after a fork rebuild.
 param(
     [string]$Out = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist\ss-delta-vita3k-test'),
-    [switch]$Zip
+    [switch]$Zip,
+    [switch]$OursOnly
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
+if ($OursOnly) {
+    $upd = Join-Path $repo 'dist\ss-delta-ours-update'
+    if (Test-Path $upd) { Remove-Item -LiteralPath $upd -Recurse -Force }
+    & robocopy (Join-Path $repo 'build\vita3k\bin\RelWithDebInfo') (Join-Path $upd 'vita3k-ours') /E /NFL /NDL /NJH /NJS /NP `
+        /XD fs cache shaderlog texturelog gui-configs patch portable screenshots `
+        /XF config.yml 'config.yml.*' '*.log' '*.out' '*.ilk' | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
+    $zipPath = "$upd.zip"
+    if (Test-Path $zipPath) { Remove-Item $zipPath }
+    & 'C:\Program Files\7-Zip\7z.exe' a -tzip -mx1 $zipPath "$upd\*" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "7-Zip failed ($LASTEXITCODE)" }
+    Write-Host ("update zip: {0} ({1:N2} GB)" -f $zipPath, ((Get-Item $zipPath).Length / 1GB))
+    return
+}
 $ext = Join-Path $repo 'extracted'
 $src = @{
     'vita3k'      = Join-Path $ext 'vita3k'
