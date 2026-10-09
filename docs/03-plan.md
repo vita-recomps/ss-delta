@@ -113,32 +113,49 @@ Carried over (not blocking Phase 2):
   concern depth and MSAA reads at higher resolutions, so they move to
   Phase 7/8 unless the 4090 retest shows a need.
 
-## Phase 2 — Static analysis and inventory (M) ☐
+## Phase 2 — Static analysis and inventory (M) ◐
 
-* ☐ `tools/inventory.py` writes `generated/inventory/*.csv` for the eboot and
-  the three modules worth recompiling (libc, libfios2, libult):
-  * **`functions.csv`:** every exidx start, its mode (Thumb/ARM), end
-    address, NEON/VFP count and call/return counts.
-  * **`jumptables.csv`:** every `tbb`/`tbh` with its decoded case targets.
-  * **`indirect.csv`:** every `blx reg` / `bx reg` / `pop {pc}` site, split
-    into `movw/movt` far calls and true indirect calls.
-  * **`imports.csv`:** the stub address → library/NID/name map.
-* ☐ Ghidra 12.1.3 + VitaLoaderRedux project built headless from
-  `extracted/elf/` (`tools/ghidra_analyze.ps1`), with names from the vitasdk
-  NID db.
-  * Use it to cross-check function boundaries (exidx vs. Ghidra) and for
-    hand analysis.
-* ☐ Answer the open research questions that affect the recompiler:
-  * `pop {pc}` used as dispatch;
-  * tail calls across exidx boundaries;
-  * ARM/Thumb switches through pointers;
-  * the 703 exidx entries with the Thumb bit clear (ARM code vs.
-    CANTUNWIND/data).
-* ☐ Find the frame-step logic behind `FPS 30` (for later 60 fps work) and the
-  GXM call sites that set render-target sizes (for resolution scaling).
+Results: [04-inventory](04-inventory.md).
 
-**Exit:** a complete function list. 100% of exidx entries are classified, and
-every indirect-flow site is resolved or explicitly listed as dynamic.
+* ☑ `tools/inventory.py` (on `tools/vitaelf.py`) writes
+  `generated/inventory/<module>/*.csv` for the eboot, libc, libfios2 and
+  libult:
+  * functions, jump tables, indirect branches, calls, import calls,
+    imports;
+  * address-taken functions, mid-function entry points;
+  * unreached bytes, classified.
+
+  Recursive descent with IT blocks, literal pools, `tbb`/`tbh` tables,
+  constants propagated for `movw/movt` far calls, no-return calls, and
+  EHABI landing pads.
+* ◐ Ghidra 12.1.3 + VitaLoaderRedux project built headless.
+  * A VitaLoaderRedux 1.09 release for 12.1.3 exists.
+  * Not installed yet: it is a compiled plugin, so it has to be read and
+    built from source first, or the owner has to OK the release binary.
+  * No longer needed for the function list, which the inventory gives
+    completely. Kept for hand analysis.
+* ☑ Open research questions answered
+  ([04-inventory](04-inventory.md#answers-to-the-open-research-questions)):
+  * no `pop {pc}` dispatch;
+  * no tail calls in the eboot;
+  * no mode switches through pointers;
+  * the 703 ARM-mode exidx entries are 674 import stubs, 28 NEON routines
+    and the end marker.
+* ◐ Frame-step logic and render-target sites:
+  * ☑ located: the display callback `0x81828708`, the `FPS` parser
+    `0x817e7c74`, the main render target `0x81828272` plus 9 more
+    render-target creators;
+  * ☐ following the `FPS` value into the main loop is left for the
+    Phase 8 60 fps study.
+
+**Exit:** met for the eboot, libfios2 and libult (2026-10-10). 100% of
+exidx entries are classified; every indirect branch is resolved or listed as
+dynamic in `indirect.csv`. libc has 8 unexplained bytes in 2 functions.
+
+New for the recompiler:
+* The eboot has no C++ exception scopes. libc has 152 landing pads that
+  need entry support.
+* The exidx mode bit can be wrong (libc `memcpy`).
 
 ## Phase 3 — Recompiler v0: integer + VFP scalar (L) ☐
 

@@ -51,3 +51,4 @@ __pycache__/
 # series is exported to patches/vita3k/ and committed there.
 /third_party/vita3k/
 /third_party/vita3k-plus-src/
+/third_party/vita-headers/

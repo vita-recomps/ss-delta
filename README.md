@@ -12,8 +12,9 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 
 Phases 0 and 1 are done. Our Vita3K fork runs the game on Vulkan on this
 machine's AMD GPU, which upstream can't, and renders it correctly at 30 fps.
-Automated runs can press buttons without taking focus. Next is Phase 2
-(static analysis and inventory). See the [plan](docs/03-plan.md).
+Automated runs can press buttons without taking focus. Phase 2 (static
+analysis) is done apart from an optional Ghidra project: every function in
+the eboot and the bundled libc, libfios2 and libult is inventoried. See the [plan](docs/03-plan.md).
 
 ## Documentation
 
@@ -22,6 +23,7 @@ Automated runs can press buttons without taking focus. Next is Phase 2
 | [01-research](docs/01-research.md) | prior work, the dump's structure, measurements of the 1.30 eboot, Vita3K as donor, approach options |
 | [02-baseline](docs/02-baseline.md) | how the game behaves in Vita3K today, and how to re-run the baseline |
 | [03-plan](docs/03-plan.md) | phases, exit criteria, risks |
+| [04-inventory](docs/04-inventory.md) | the code inventory: functions, jump tables, indirect branches, exceptions, frame pacing and render-target sites |
 | [decisions](docs/decisions.md) | decision log |
 | [hashes](docs/hashes.md) | input hashes |
 
@@ -30,6 +32,8 @@ Automated runs can press buttons without taking focus. Next is Phase 2
 | Script | What |
 |---|---|
 | `tools/velf.py` | Vita SCE ELF: segments, module_info, NID-named imports/exports, exidx |
+| `tools/vitaelf.py` | library: Vita ELF segments, module_info, imports/exports, exidx, EHABI exception scopes |
+| `tools/inventory.py` | per-module code inventory into `generated/inventory/<module>/` (see docs/04-inventory) |
 | `tools/imix.py` | Capstone instruction-mix sweep over every exidx function |
 | `tools/sfo.py` | print `param.sfo` fields |
 | `tools/v3kdrive.py` | drive the portable Vita3K for baseline runs: launch, `BootSequence`, FPS sampling, background screenshots |

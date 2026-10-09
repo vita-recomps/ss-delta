@@ -39,6 +39,12 @@ conventions.
   with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,
   Qt 6.11.0 in `C:\Qt`) into `build/vita3k`. Export our commits to
   `patches/vita3k/` with `git format-patch` before committing here.
+- NID names: vitasdk `vita-headers` db in `third_party/vita-headers/db/360`
+  (pinned commit in `PINNED_COMMIT`, not committed). The code inventory is
+  regenerated with `tools/inventory.py` into `generated/inventory/`.
+- In Bash heredocs, backslash escapes inside Python strings get mangled. Use
+  the Edit tool, or build backslashes with `chr(92)`, for strings containing
+  `\`.
 - GitHub connections from this machine stall intermittently. Use
   `timeout` plus `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and
   retry; codeload.github.com tarballs are reliable.
