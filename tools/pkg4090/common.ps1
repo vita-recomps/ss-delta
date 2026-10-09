@@ -2,6 +2,7 @@
 # Layout, relative to the package root:
 #   vita3k\        upstream Vita3K build   (portable\ holds its config, logs, caches)
 #   vita3k-plus\   Vita3K-Plus build       (same)
+#   vita3k-ours\   our fork, with the AMD fixes (same)
 #   vitafs\        the shared Vita file system: installed game, licence, firmware
 #   results\       everything the scripts record
 
@@ -15,6 +16,7 @@ $GameIni = Join-Path $VitaFs "ux0\app\$TitleId\resource\config.ini"
 $Emulators = @{
     'upstream' = Join-Path $Root 'vita3k'
     'plus'     = Join-Path $Root 'vita3k-plus'
+    'ours'     = Join-Path $Root 'vita3k-ours'
 }
 
 $BootTargets = [ordered]@{

@@ -104,7 +104,9 @@ scripted without focus.
 
 Carried over (not blocking Phase 2):
 * the Debug build;
-* the RTX 4090 retest of our fork;
+* the RTX 4090 retest of our fork: round-2 package built 2026-10-09
+  (`dist/ss-delta-vita3k-test.zip`, 4.19 GB, `ours` + upstream + Plus,
+  12 runs), waiting for the owner to run it;
 * the zero-init experiment (only if the 4090 still shows the white floor);
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They
   concern depth and MSAA reads at higher resolutions, so they move to

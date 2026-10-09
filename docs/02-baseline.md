@@ -401,6 +401,20 @@ What this means:
 4. **Performance is a non-issue** on both machines at 1×: the game's 30 fps
    cap holds everywhere.
 
+## RTX 4090 test package, round 2 (2026-10-09)
+
+`tools/package4090.ps1 -Zip` now also packs our fork as `vita3k-ours`
+(RelWithDebInfo, with its PDB for symbolised crash stacks; no `.ilk`). It
+sets `validation-layer: false` in every packed config, so PCs with and
+without the Vulkan SDK behave the same.
+* `run-matrix.bat` defaults to ours, upstream and Plus × Vulkan/OpenGL ×
+  Elder/Harpy: 12 runs.
+* `play.bat` defaults to ours.
+* Local smoke test (ours, Vulkan, Harpy, 40 s): ok, 30 fps median, textured
+  floor.
+* The question for round 2: does our fork also fix the white Walhalla floor
+  on NVIDIA?
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs

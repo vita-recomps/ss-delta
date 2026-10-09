@@ -1,4 +1,4 @@
-# Build dist\ss-delta-vita3k-test: both Vita3K builds in portable mode, the shared
+# Build dist\ss-delta-vita3k-test: our Vita3K fork, upstream and Vita3K-Plus in portable mode, the shared
 # Vita file system (installed game + licence + firmware) and the test scripts.
 # The output contains the owner's decrypted dump: it is for the owner's own PCs only.
 param(
@@ -11,6 +11,9 @@ $ext = Join-Path $repo 'extracted'
 $src = @{
     'vita3k'      = Join-Path $ext 'vita3k'
     'vita3k-plus' = Join-Path $ext 'vita3k-plus\1.2'
+    # our fork (third_party/vita3k), built by tools/build-vita3k.ps1; the PDB is kept so a
+    # crash on the other PC logs a symbolised stack
+    'vita3k-ours' = Join-Path $repo 'build\vita3k\bin\RelWithDebInfo'
 }
 
 function Invoke-Robocopy([string]$From, [string]$To, [string[]]$ExtraArgs) {
@@ -38,7 +41,7 @@ foreach ($name in $src.Keys) {
     Write-Host "emulator: $name"
     # Program files only: no VitaFS, caches, logs, GUI state or our run outputs.
     Invoke-Robocopy $from $to @('/XD', 'fs', 'cache', 'shaderlog', 'texturelog', 'gui-configs', 'patch', 'portable', 'screenshots',
-        '/XF', 'config.yml', 'config.yml.orig', '*.log', '*.out')
+        '/XF', 'config.yml', 'config.yml.*', '*.log', '*.out', '*.ilk')
     $portable = Join-Path $to 'portable'
     New-Item -ItemType Directory -Force $portable | Out-Null
     Copy-Item (Join-Path $from 'config.yml') (Join-Path $portable 'config.yml') -Force
@@ -48,6 +51,8 @@ foreach ($name in $src.Keys) {
     $text = [regex]::Replace($text, '(?m)^pref-path:.*$', 'pref-path: ""')
     $text = [regex]::Replace($text, '(?m)^keyboard-take-screenshot:.*$', 'keyboard-take-screenshot: F12')
     $text = [regex]::Replace($text, '(?m)^discord-rich-presence:.*$', 'discord-rich-presence: false')
+    # only loaded where the Vulkan SDK is installed; keep runs comparable across PCs
+    $text = [regex]::Replace($text, '(?m)^validation-layer:.*$', 'validation-layer: false')
     [IO.File]::WriteAllText($cfg, $text)
 }
 

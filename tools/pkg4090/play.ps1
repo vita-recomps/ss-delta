@@ -1,7 +1,7 @@
 # Interactive run: boot the game in one emulator/renderer, play, then close the window.
 # The log and any screenshots (F12) are copied to results\ afterwards.
 param(
-    [ValidateSet('upstream', 'plus')][string]$Emu = 'plus',
+    [ValidateSet('ours', 'upstream', 'plus')][string]$Emu = 'ours',
     [ValidateSet('Vulkan', 'OpenGL')][string]$Renderer = 'Vulkan',
     [ValidateSet('Title', 'DebugMenu', 'Elder', 'Harpy')][string]$Boot = 'Title',
     [int]$Volume = 100

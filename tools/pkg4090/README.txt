@@ -1,15 +1,16 @@
-Soul Sacrifice Delta - Vita3K test package (for the RTX 4090 PC)
-=================================================================
+Soul Sacrifice Delta - Vita3K test package, round 2 (for the RTX 4090 PC)
+==========================================================================
 
 Contains the owner's own dump only. Do not share this folder.
 
 The package holds:
 
-* two emulator builds:
+* three emulator builds:
+  * vita3k-ours\  our own Vita3K build, with fixes for this game (new)
   * vita3k\       upstream Vita3K v0.2.1 build 4152 (2026-10-09)
   * vita3k-plus\  Vita3K-Plus v1.2 (a fork with fixes for this game)
 * vitafs\         the installed game (US 1.30, decrypted), its licence and
-                  firmware 3.74, shared by both builds
+                  firmware 3.74, shared by all builds
 * scripts\        PowerShell scripts behind the .bat files
 
 Nothing is installed and nothing is written outside this folder. Each
@@ -33,27 +34,25 @@ it needs no admin rights.
 1. What we want to know
 -----------------------
 
-On the dev mini PC (Radeon 760M), these were the results:
+Round 1 on this PC showed upstream and Plus on Vulkan drawing the boss arena
+floor plain white. On the dev mini PC (Radeon 760M), our build now draws
+both maps correctly on Vulkan: textured arena floor and a clean cloak.
 
-| Build    | Vulkan                               | OpenGL                                          |
-|----------|--------------------------------------|-------------------------------------------------|
-| upstream | crashes about 4 s into boot, every time | runs at 30 fps; black blocks in the sky, white arena floor |
-| plus     | runs at 30 fps and looks right, except speckled noise on the player's cloak | runs at 30 fps; same black blocks and white floor as upstream, clean cloak |
+This round asks:
 
-On the 4090 PC we want to know:
-
-* Does upstream Vulkan boot?
-* Does each build render correctly: no black blocks, textured floors, a
-  clean cloak?
-* What frame rate does each manage?
+* Does our build (vita3k-ours) also draw the arena floor textured on the
+  RTX 4090, with no other regressions?
+* Are the upstream and Plus results the same as in round 1? They are
+  included again for side-by-side screenshots.
 
 
-2. The automatic test: please run this first (about 10 minutes)
+2. The automatic test: please run this first (about 15 minutes)
 ---------------------------------------------------------------
 
 Double-click run-matrix.bat.
 
-It boots each build x renderer x map combination (8 runs of about 70 s).
+It boots each build x renderer x map combination (12 runs of about 70 s,
+about 15 minutes in all).
 Each run goes straight into a map, using the game's developer
 "BootSequence" setting, so no input is needed.
 
@@ -72,14 +71,15 @@ Send that zip back. It is small: screenshots, logs and CSVs.
 
 Run only part of the matrix:
 
-    run-matrix.bat -Emu upstream -Renderer Vulkan
+    run-matrix.bat -Emu ours -Renderer Vulkan      only our build, Vulkan
     run-matrix.bat -Boot Harpy -Seconds 90
 
 
 3. Playing interactively (optional)
 -----------------------------------
 
-    play.bat                                    Vita3K-Plus, Vulkan, title screen
+    play.bat                                    our build, Vulkan, title screen
+    play.bat -Emu plus                          Vita3K-Plus instead
     play.bat -Emu upstream                      upstream build instead
     play.bat -Renderer OpenGL
     play.bat -Boot DebugMenu                    developer menu

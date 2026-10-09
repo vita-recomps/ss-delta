@@ -3,7 +3,7 @@
 # window title every 0.5 s, takes background screenshots, records crashes and logs.
 # Nothing needs keyboard focus; you can keep using the PC (it will be busy though).
 param(
-    [string[]]$Emu = @('upstream', 'plus'),
+    [string[]]$Emu = @('ours', 'upstream', 'plus'),
     [string[]]$Renderer = @('Vulkan', 'OpenGL'),
     [string[]]$Boot = @('Elder', 'Harpy'),
     [int]$Seconds = 60
@@ -14,7 +14,7 @@ param(
 $Emu = @($Emu -split ',' | Where-Object { $_ })
 $Renderer = @($Renderer -split ',' | Where-Object { $_ })
 $Boot = @($Boot -split ',' | Where-Object { $_ })
-foreach ($e in $Emu) { if (-not $Emulators.Contains($e)) { throw "unknown -Emu $e (upstream, plus)" } }
+foreach ($e in $Emu) { if (-not $Emulators.Contains($e)) { throw "unknown -Emu $e (ours, upstream, plus)" } }
 foreach ($b in $Boot) { if (-not $BootTargets.Contains($b)) { throw "unknown -Boot $b ($($BootTargets.Keys -join ', '))" } }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
