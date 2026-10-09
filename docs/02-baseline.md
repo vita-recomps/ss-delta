@@ -56,6 +56,65 @@ Artifacts are in `extracted/baseline/` (never committed): `fps.csv`,
 | 5 | Vulkan + `memory-mapping: disabled` | HarpyBattle | **Hard crash**; the log stops mid-line during module loading | — |
 | 6 | OpenGL | `DebugMenu` | Dev "SELECT SEQUENCE MODULE" menu, 17 entries, renders correctly | 30 |
 | 7 | OpenGL | `ELDER DEFAULT MAP` | In field: terrain, rocks and character drawn but **heavily overexposed/washed out**, with black quads in the sky. The overexposure did not reproduce in later runs (see the settings test) | 30 / 29 |
+| 8 (2026-10-09) | Vulkan + `validation-layer: false` | `ELDER DEFAULT MAP` | **Same crash**, 3.7 s after device creation (write to `0x0`). Upstream defaults `validation-layer: true` and loads the layer here because the Vulkan SDK is installed; Plus defaults it to `false`. This ruled the layer out as the cause | — |
+| 9 | Vulkan + `async-pipeline-compilation: false` (Plus's default) | `ELDER DEFAULT MAP` | **Same crash** | — |
+| 10 | Vulkan + `memory-mapping: external-host` (Plus's default) | `ELDER DEFAULT MAP` | **Same crash** | — |
+| 11 | Vulkan + `high-accuracy: true` + surface sync on (Plus's defaults) | `ELDER DEFAULT MAP` | **Same crash** | — |
+
+#### Where the Vulkan crash happens (2026-10-09)
+
+* **The crash is inside AMD's Vulkan driver.** The Windows Application log
+  (event 1000) records every upstream Vulkan crash as faulting module
+  `amdvlk64.dll` 32.0.22029.9039, exception `0xc0000005`, fault offset
+  `0x2b12324`. That is the same offset in every run, including the copy in
+  `dist/`.
+* **The shaders are valid SPIR-V.** All 15 `vk13-*.spv` files written before
+  the crash pass `spirv-val --target-env vulkan1.1 --scalar-block-layout`.
+  Without that flag the only complaints are std140 offsets, which the
+  `uniformBufferStandardLayout` feature Vita3K enables allows.
+* **No validation-layer errors** were logged before the crash (runs 1 and 4
+  had the layer on).
+* Runs 8–11 rule out the config defaults that differ between upstream and
+  Plus. So the fix is somewhere in Plus's code. None of Plus's commits
+  mention AMD.
+* **Next:** our build logs the faulting thread's stack (`util/logging.cpp`
+  patch), which names the Vita3K call that hands the driver the bad
+  input.
+
+#### Our build (2026-10-09): the crash is driver state, not one pipeline
+
+Our build is upstream `b75d5e62` plus a stack-trace patch
+([D5](decisions.md), `patches/vita3k/`). It boots to the title on OpenGL at
+29–30 fps, like the release.
+
+On Vulkan, the stack shows the render thread in
+`PipelineCache::compile_pipeline` (`pipeline_cache.cpp:923`) →
+`vkCreateGraphicsPipelines` → validation layer → `amdvlk64.dll+0x2B12324`.
+A temporary logging branch (`debug/amd-pipeline-crash` in the fork) named
+each pipeline before creation:
+
+| Test | Result |
+|---|---|
+| Sync or async compilation | always the 7th pipeline: vertex `ab9c7561…` + fragment `61f0d854…` (triangle strip, 4 attributes, framebuffer read through an input attachment) |
+| Fragment `main` emptied | crash |
+| Vertex `main` emptied | crash |
+| Both replaced by trivial GLSL shaders (no resources) | crash |
+| Plus the previous good pipeline's layout (fragment textures 3 → 2) | crash. All logged state now matches the previous pipeline, which compiled |
+| Plus no `VkPipelineCache` | crash |
+| Skip this pipeline | the **next new pipeline** crashes (`f1340375…`/`f5ccb166…`, which Plus compiles fine on this GPU) |
+
+* **Conclusion:** after six pipelines, `vkCreateGraphicsPipelines` on
+  amdvlk 32.0.22029.9039 (Adrenalin 25.12.1) crashes whatever the pipeline
+  contains. Two explanations remain open:
+  * a driver bug triggered by earlier API use;
+  * Vita3K corrupting driver-owned memory before that point.
+* Plus avoids it on the same driver. It uses fragment-shader interlock
+  instead of input attachments, and it never issued this draw. Upstream
+  with `high-accuracy: true` also uses interlock (run 11) and still crashed.
+  So Plus's escape is something else in its 167 commits.
+* **Next:** update the driver to Adrenalin 26.8.1. If the crash goes, it was
+  the driver. If not, look for what Vita3K does to the device before the
+  7th pipeline.
 
 ### Takeaways
 
@@ -256,6 +315,33 @@ What this means:
    * **Next step:** with `log-active-shaders`, dump the Walhalla floor
      shader and check its `sa`/`pa` reads against the GXP program's
      declared parameters.
+
+   **First check (2026-10-09) weakens this lead.**
+   * Over the four OpenGL runs, the warnings are mostly not `sa`/`pa`:
+
+     | Variable | Vertex | Fragment |
+     |---|---|---|
+     | `r` (temporaries) | 254 | 86 |
+     | `pa` | 91 | 219 |
+     | `internals` | 120 | 105 |
+     | `outs` | 0 | 18 |
+     | `sa` | 2 | 6 |
+
+   * 77 shaders can be tied to their warnings because the log names them
+     ("Generating … shader <hash>" directly before the compile). All 77 are
+     in our local OpenGL shader cache
+     (`extracted/vita3k/cache/shaders/PCSA00152/eboot.bin/`, GLSL), and the
+     GXP and USSE disassembly are in `extracted/vita3k/shaderlog/`.
+   * The two shaders read so far (`da18ddf0….vert`, `4a0ddea9….frag`) warn
+     only because the translator copies a whole `vec4` register, sets some
+     components and writes it back (`vec4 t = sa[0]; t.x = 1.0; sa[0] = t;`).
+     The unset components are never used, so these warnings are benign.
+   * NVIDIA reports the declaration line, so the warnings alone can't
+     separate benign copies from real reads.
+   * **Better test:** make our build zero-initialise every register array
+     (`pa`, `sa`, `r`, `internals`, `outs`) in the translator. If the
+     NVIDIA white floor or wash-out changes, uninitialised reads matter. If
+     not, this lead is dead.
 3. **The upstream Vulkan crash is specific to AMD (or the iGPU).** Upstream
    Vulkan runs fine on NVIDIA. Plus avoids the crash on AMD, so the fix is
    in Plus's diff.
@@ -269,5 +355,4 @@ What this means:
 * Audio. It was muted for the runs.
 * Higher resolution multipliers, and `high-accuracy: true`.
 * Per-thread CPU time.
-* Vulkan on an NVIDIA GPU.
 * The Mind's Eye overlay bug (D-pad down in a quest).

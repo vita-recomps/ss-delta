@@ -46,3 +46,8 @@ __pycache__/
 /*.png
 /*.jpg
 /*.log
+
+# Vita3K fork: a nested git clone with its own history (D5). Our patch
+# series is exported to patches/vita3k/ and committed there.
+/third_party/vita3k/
+/third_party/vita3k-plus-src/

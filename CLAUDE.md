@@ -26,8 +26,18 @@ conventions.
   Bash) is also available.
 - Portable Vita3K: `extracted/vita3k/` (`pref-path` = `fs/`). The installed
   game is in `fs/ux0/app/PCSA00152`. Firmware 3.74 is installed.
-- Vulkan crashes at boot on this machine's Radeon 760M; use OpenGL for runs
-  ([D4](docs/decisions.md)).
+- Vulkan is the renderer to build on ([D4](docs/decisions.md) update 2).
+  Upstream Vulkan crashes at boot on this machine's Radeon 760M (inside
+  `amdvlk64.dll`); Vita3K-Plus v1.2 (`extracted/vita3k-plus/1.2/`) runs on
+  Vulkan here.
+- Our Vita3K fork: `third_party/vita3k`, a nested git clone on branch
+  `ss-delta` ([D5](docs/decisions.md)), with Plus as remote `plus`. Build it
+  with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,
+  Qt 6.11.0 in `C:\Qt`) into `build/vita3k`. Export our commits to
+  `patches/vita3k/` with `git format-patch` before committing here.
+- GitHub connections from this machine stall intermittently. Use
+  `timeout` plus `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and
+  retry; codeload.github.com tarballs are reliable.
 - `tools/v3kdrive.py` never takes keyboard focus. Don't add focus-stealing
   input without asking.
 

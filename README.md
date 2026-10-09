@@ -10,9 +10,9 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 
 ## Status
 
-Phase 0 (workspace, decryption, baseline) is done. Next is Phase 1: our own
-Vita3K build, and fixing its Vulkan crash on this machine. See the
-[plan](docs/03-plan.md).
+Phase 0 (workspace, decryption, baseline) is done. Phase 1 is in progress:
+our own Vita3K fork builds and boots the game on OpenGL; the Vulkan crash on
+this machine is traced to AMD's driver. See the [plan](docs/03-plan.md).
 
 ## Documentation
 
@@ -32,6 +32,8 @@ Vita3K build, and fixing its Vulkan crash on this machine. See the
 | `tools/imix.py` | Capstone instruction-mix sweep over every exidx function |
 | `tools/sfo.py` | print `param.sfo` fields |
 | `tools/v3kdrive.py` | drive the portable Vita3K for baseline runs: launch, `BootSequence`, FPS sampling, background screenshots |
+| `tools/devshell.ps1` | dot-source to load MSVC x64 and point CMake at Qt 6.11.0 |
+| `tools/build-vita3k.ps1` | configure and build our Vita3K fork (`third_party/vita3k`) into `build/vita3k` |
 | `tools/package4090.ps1` | build `dist/ss-delta-vita3k-test` (both Vita3K builds, the installed game, `run-matrix.bat`/`play.bat` from `tools/pkg4090/`) for testing on another PC |
 
 Python dependencies: `pyyaml`, `capstone`, `pycryptodome` (for SELF

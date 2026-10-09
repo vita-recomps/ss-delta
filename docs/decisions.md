@@ -92,3 +92,47 @@ GPU vendor. No combination is correct on both GPUs.
   points at undefined behaviour in shader translation (see
   [02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
 * OpenGL is no longer used for rendering judgements.
+
+## D5 — Fork upstream Vita3K, not Vita3K-Plus; cherry-pick from Plus (accepted, 2026-10-09)
+
+**Context:** Phase 1 needs a Vita3K source tree we build and patch. Plus v1.2
+(tag `v1.2` = branch `all-enhancements`, `e2331f80`) is the build that runs
+on Vulkan on the Radeon 760M. Measured against upstream:
+
+* Merge base `5b040dc4` (2026-06-12, "app: Implement linux portable").
+  This is also the hash in the Plus binary's build string `2-5b040dc4`.
+* Plus adds 167 commits: 250 files, +17,964/−2,417 lines. Most target other
+  games (Killzone, Uncharted, Resistance, Gundam, MGS3 …), Android/Mali/
+  Turnip drivers, a thread-scheduling rework ("emulate the 3 cores"), and
+  deadlock/hang watchdogs.
+* Two commits name this game:
+  * `98a65bff` "Fixes for depth in SSDelta": whole-mip-chain texture hashing,
+    tiled depth-surface row rounding, full-width colour-surface reads,
+    depth-bias slope × resolution multiplier;
+  * `d248beee` "Refix Sacrifice Soul Delta outlines": MSAA depth surfaces
+    read back as textures at the right samples-per-texel.
+* Upstream has 98 commits since the merge base, which Plus lacks.
+
+**Decision:**
+
+* Our fork starts from upstream `master`. It lives in `third_party/vita3k` as
+  a nested git clone (it is ~1 GB with submodules, too big to vendor as in
+  decimation D6), on branch `ss-delta`.
+* Plus is a second remote (`plus`) in that clone. Its fixes come over as
+  cherry-picks, one at a time, each tested against this game.
+* Our patch series is exported with `git format-patch` into
+  `patches/vita3k/`, and that directory is committed here. The pinned
+  upstream commit is recorded below.
+
+**Why not Plus:**
+
+* Its game-specific hacks and global scheduling/watchdog changes would be
+  noise in the Phase 4 differential work.
+* Fixes made on upstream can be sent upstream.
+* Plus is behind upstream by 98 commits, and rebasing it is not our job.
+
+**Consequences:** the AMD Vulkan crash has to be found by debugging upstream
+directly, with the Plus diff as a hint rather than a ready-made fix.
+
+**Pinned:** upstream `b75d5e62` (2026-10-09, "appimage: Correctly copy data
+folder (#4216)").

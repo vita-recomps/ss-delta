@@ -38,29 +38,36 @@ and [D1](decisions.md):
 **Exit:** met. The game boots in our Vita3K, its behaviour is recorded, and
 decrypted ELFs and hashes exist.
 
-## Phase 1 — Vita3K from source (M) ☐
+## Phase 1 — Vita3K from source (M) ◐
 
 We will patch Vita3K heavily, so we need our own build and a debugger on it
 first.
 
-* ☐ Clone Vita3K with submodules into `third_party/vita3k` (our fork; vendor
-  vs. submodule as in decimation D6). Pin the commit in
-  [decisions](decisions.md).
-* ☐ Build with VS 2022 / clang-cl + Ninja.
-  * loktar00's `port/build/vita3k-msvc1441.patch` notes MSVC 14.41 issues.
-  * Check them against our MSVC 14.44.
-* ☐ Debug build, plus RelWithDebInfo with PDBs. Our build boots the game to
-  the title on OpenGL.
-* ☐ **Root-cause the Vulkan crash** on the Radeon 760M: break on the access
-  violation and get the call stack.
-  * Fix it, or record a workaround, and report it upstream if it is
+* ☑ Clone Vita3K with submodules into `third_party/vita3k`: a nested clone
+  on branch `ss-delta`, pinned at `b75d5e62`, with the patch series in
+  `patches/vita3k/` ([D5](decisions.md)).
+* ☑ Build with MSVC 14.44 + Ninja Multi-Config, Qt 6.11.0
+  (`tools/devshell.ps1`, `tools/build-vita3k.ps1`). No MSVC fixes were
+  needed. A clean RelWithDebInfo build takes 8.7 min.
+* ◐ RelWithDebInfo with PDBs: ☑ boots to the title on OpenGL at 29–30 fps.
+  ☐ Debug build.
+* ◐ **Root-cause the Vulkan crash** on the Radeon 760M
+  ([02-baseline](02-baseline.md#our-build-2026-10-09-the-crash-is-driver-state-not-one-pipeline)).
+  * ☑ Call stack: `vkCreateGraphicsPipelines` inside `amdvlk64.dll`, from
+    `PipelineCache::compile_pipeline`.
+  * ☑ It isn't the pipeline's content. Trivial shaders still crash, and
+    skipping the pipeline moves the crash to the next one.
+  * ☐ Retest on Adrenalin 26.8.1 (currently 25.12.1).
+  * ☐ Fix it, or record a workaround, and report it upstream if it is
     Vita3K's bug.
 * ◐ Vita3K-Plus.
   * ☑ The v1.2 binary boots on Vulkan here and fixes the black blocks and
     white floors ([02-baseline](02-baseline.md#vita3k-plus-v12-2026-10-09)).
-  * ☐ Decide whether our fork starts from Vita3K-Plus instead of upstream.
-    Its source is GPL-2.0 too. Diff it against upstream to see how far it has
-    diverged.
+  * ☑ Base our fork on upstream, not Plus ([D5](decisions.md)). Plus is
+    upstream plus 167 commits (+18k lines), mostly other games' fixes.
+  * ☐ Port its two fixes for this game (`98a65bff` depth, `d248beee` MSAA
+    outlines). Neither applies cleanly on upstream; both build on earlier
+    Plus surface-cache changes.
   * ☐ Find which Plus change avoids the AMD Vulkan crash.
   * ☐ The Vulkan cloak speckle.
 * ☑ Collect the RTX 4090 test results and record them in
@@ -68,9 +75,13 @@ first.
   * No crashes, 30 fps.
   * Every rendering artifact depends on the GPU vendor.
   * Upstream Vulkan works on NVIDIA.
-* ☐ Investigate the uninitialized `sa`/`pa` register reads in translated
-  shaders (NVIDIA GLSL warnings), starting with the Walhalla floor shader.
+* ◐ Investigate the uninitialized register reads in translated shaders
+  (NVIDIA GLSL warnings), starting with the Walhalla floor shader.
   * This is the leading hypothesis for the vendor-dependent artifacts.
+  * ☑ Tie the warnings to shader hashes. The two read so far are benign
+    partial-`vec4` copies ([02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
+  * ☐ Zero-initialise every register array in our build's translator, and
+    compare the Walhalla floor on the RTX 4090.
   * A fix here would be upstreamable, and every Vita3K user of this game
     would benefit.
 * ☐ Real input for automated runs.
