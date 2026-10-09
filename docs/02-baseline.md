@@ -203,6 +203,65 @@ the target).
   * upstream Vulkan crashed (exit code 0xC0000005) after 6 s;
   * upstream OpenGL, Plus Vulkan and Plus OpenGL ran at 29–30 fps.
 
+## RTX 4090 results (2026-10-09)
+
+The package was run on the RTX 4090 PC:
+
+* Ryzen 7 7800X3D, RTX 4090 with driver 610.62 (Windows 32.0.16.1062).
+  The machine also has the 7800X3D's iGPU and virtual display adapters, but
+  every log shows the RTX 4090 in use.
+* `run-matrix.bat` defaults: 60 s per run, cold caches.
+* Raw results are in `extracted/baseline/rtx4090/`.
+
+**No crashes, and 29–30 fps in all 8 runs.**
+
+| Build | Renderer | ELDER DEFAULT MAP | HarpyBattle (Walhalla) |
+|---|---|---|---|
+| upstream | Vulkan | **correct**: fog, sky text, clean cloak | **white floor**; castle, boss and cloak correct |
+| plus | Vulkan | **correct** | **white floor**; rest correct |
+| upstream | OpenGL | **washed out** (almost white) at 30 s and 60 s | washed out, castle barely visible |
+| plus | OpenGL | correct | floor textured but desaturated and greenish; no black blocks |
+
+Compared with the Radeon 760M:
+
+| Symptom | Radeon 760M (AMD iGPU) | RTX 4090 (NVIDIA) |
+|---|---|---|
+| Upstream Vulkan crash at boot | always | **never** |
+| Black blocks (OpenGL) | every OpenGL run, both builds | **none** |
+| Speckled cloak (Plus, Vulkan) | always | **none** |
+| White Walhalla floor | upstream OpenGL; Plus Vulkan has it **textured** | upstream and Plus **Vulkan**; Plus OpenGL textured |
+| Overexposure (upstream OpenGL) | first run only | every run (both maps) |
+
+What this means:
+
+1. **No build/backend combination renders this game correctly on both
+   GPUs.**
+   * The best results are NVIDIA Vulkan (white Walhalla floor only) and AMD
+     Plus Vulkan (speckled cloak only).
+   * The same Vita3K code gives different wrong pictures on different
+     vendors. That points at **undefined behaviour in the translated
+     shaders or GPU state**, which drivers resolve differently, rather than
+     at missing features.
+2. **A concrete lead from the NVIDIA GLSL compiler.** It warns
+   `"sa[0]" might be used before being initialized` and
+   `"pa[0].zw" might be used before being initialized`:
+   * 34–83 times per OpenGL run;
+   * none in Plus/Elder, which is the one OpenGL run that looks right.
+
+   `sa`/`pa` are the USSE secondary-attribute (uniform) and
+   primary-attribute register files in Vita3K's translated shaders. Reading
+   them uninitialized gives driver-dependent values.
+   * **Hypothesis:** this causes the overexposure and the white floor, and
+     the same translator bug feeds the Vulkan (SPIR-V) path.
+   * **Next step:** with `log-active-shaders`, dump the Walhalla floor
+     shader and check its `sa`/`pa` reads against the GXP program's
+     declared parameters.
+3. **The upstream Vulkan crash is specific to AMD (or the iGPU).** Upstream
+   Vulkan runs fine on NVIDIA. Plus avoids the crash on AMD, so the fix is
+   in Plus's diff.
+4. **Performance is a non-issue** on both machines at 1×: the game's 30 fps
+   cap holds everywhere.
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs

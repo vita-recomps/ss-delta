@@ -63,8 +63,16 @@ first.
     diverged.
   * ☐ Find which Plus change avoids the AMD Vulkan crash.
   * ☐ The Vulkan cloak speckle.
-* ☐ Collect the RTX 4090 test results (`dist/ss-delta-vita3k-test.zip`,
-  `run-matrix.bat`) and record them in [02-baseline](02-baseline.md).
+* ☑ Collect the RTX 4090 test results and record them in
+  [02-baseline](02-baseline.md#rtx-4090-results-2026-10-09).
+  * No crashes, 30 fps.
+  * Every rendering artifact depends on the GPU vendor.
+  * Upstream Vulkan works on NVIDIA.
+* ☐ Investigate the uninitialized `sa`/`pa` register reads in translated
+  shaders (NVIDIA GLSL warnings), starting with the Walhalla floor shader.
+  * This is the leading hypothesis for the vendor-dependent artifacts.
+  * A fix here would be upstreamable, and every Vita3K user of this game
+    would benefit.
 * ☐ Real input for automated runs.
   * Options: a test-only key-injection hook in our fork (preferred: no focus
     stealing), or an SDL virtual joystick.

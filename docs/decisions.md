@@ -79,3 +79,16 @@ renders the maps correctly, apart from a speckled player cloak. It becomes
 the **rendering reference**. Upstream OpenGL stays the reference for
 behaviour and timing until our own build exists. The RTX 4090 results
 (`dist/ss-delta-vita3k-test`) will show which artifacts are AMD-specific.
+
+**Update 2 (2026-10-09, RTX 4090 results):** every artifact depends on the
+GPU vendor. No combination is correct on both GPUs.
+
+* **Vulkan is the renderer to build on.** It is the only backend without
+  gross errors on both vendors.
+* Comparisons use two references:
+  * Plus Vulkan on the mini PC;
+  * upstream or Plus Vulkan on the RTX 4090.
+* A difference between the two references is itself a bug signal, and
+  points at undefined behaviour in shader translation (see
+  [02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
+* OpenGL is no longer used for rendering judgements.
