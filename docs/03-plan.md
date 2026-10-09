@@ -49,8 +49,10 @@ first.
 * ☑ Build with MSVC 14.44 + Ninja Multi-Config, Qt 6.11.0
   (`tools/devshell.ps1`, `tools/build-vita3k.ps1`). No MSVC fixes were
   needed. A clean RelWithDebInfo build takes 8.7 min.
-* ◐ RelWithDebInfo with PDBs: ☑ boots to the title on OpenGL at 29–30 fps.
-  ☐ Debug build.
+* ☑ RelWithDebInfo with PDBs boots to the title on OpenGL at 29–30 fps.
+  ☑ The Debug build (`build/vita3k/bin/Debug`) boots on Vulkan with no
+  crash but runs at about 0.2 fps (4.7 s per frame). Use it only for
+  stepping through code; runs use RelWithDebInfo.
 * ☑ **Root-cause the Vulkan crash** on the Radeon 760M
   ([02-baseline](02-baseline.md#our-build-2026-10-09-the-amd-vulkan-crash-is-found-and-fixed)).
   * It is an AMD shader-compiler crash in `vkCreateGraphicsPipelines`, on
@@ -103,7 +105,6 @@ machine (field and arena at 30 fps, rendered correctly), and input is
 scripted without focus.
 
 Carried over (not blocking Phase 2):
-* the Debug build;
 * the RTX 4090 retest of our fork: round-2 package built 2026-10-09
   (`dist/ss-delta-vita3k-test.zip`, 4.19 GB, `ours` + upstream + Plus,
   12 runs), waiting for the owner to run it;
