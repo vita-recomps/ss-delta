@@ -579,6 +579,24 @@ floor. `diag3.bat` (in `dist/ss-delta-ours-update.zip`) runs as is,
 `SSD_DENORM=preserve` and `SSD_DENORM=ftz` for 75 s each, and the log
 prints NVIDIA's float-controls properties.
 
+**4090 diag 3 (2026-10-10, `matrix-20261010-024932.zip`).**
+* NVIDIA (driver 610.62) reports float controls: denorm preserve f16 1,
+  **f32 0**, f64 0; flush-to-zero f16 0, **f32 0**; independence "All".
+  So it can neither guarantee preserving nor be told to flush 32-bit
+  denormals.
+* As is 81.5 % white, `preserve` 84.2 %, `ftz` 83.4 %: the execution modes
+  are effectively ignored.
+* This is consistent with the hypothesis: AMD guarantees fp32 denormals and
+  renders correctly; NVIDIA flushes some, and the floor shader breaks.
+  **Not proven.**
+* **Likely fix:** a translator change. Keep packed f16 pairs in integer
+  (`uint`) registers instead of `uintBitsToFloat` floats, so no packed
+  value ever passes through a float operation as a denormal. It is a
+  sizeable change to Vita3K's shader translator.
+
+**On hold (owner, 2026-10-10)** until direct NVIDIA access is available for
+straightforward debugging.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no

@@ -114,8 +114,13 @@ Carried over (not blocking Phase 2):
   * ☑ RTX 4090 round 3: the depth texture now comes from the cache, but
     the floor is still white. The cause is narrowed to the floor's albedo
     texture (swizzled UBC1, 10 mips).
-  * ☐ 4090 `diag.bat` (CPU BC decode / base mip only) to tell BC decoding
-    from the mip chain.
+  * ☑ 4090 diag rounds 1–3: not BC decoding, mips, overlays or high
+    accuracy. The floor shader itself computes white on NVIDIA.
+    * Lead: fp32 denormals. The translator packs f16 pairs into floats;
+      NVIDIA can't preserve fp32 denormals, AMD does.
+  * ⏸ **On hold** until direct NVIDIA access. Then: confirm with RenderDoc
+    or shader edits on the 4090, and try keeping packed f16 pairs in
+    `uint` registers. Debug toggles are on fork branch `debug/floor`.
 * ☑ Zero-init experiment: done on AMD, with no effect. The cause was
   elsewhere.
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They
