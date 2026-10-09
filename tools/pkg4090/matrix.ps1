@@ -7,7 +7,8 @@ param(
     [string[]]$Renderer = @('Vulkan', 'OpenGL'),
     [string[]]$Boot = @('Elder', 'Harpy'),
     [int]$Seconds = 60,
-    # diagnostic builds: each variant is an environment variable set to 1 for that run ('none' = no variable)
+    # diagnostic builds: each variant is an environment variable for that run, NAME (set to 1) or
+    # NAME=VALUE ('none' = no variable). Separate variants with ';' when values contain commas.
     [string[]]$Variants = @('none')
 )
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -16,7 +17,7 @@ param(
 $Emu = @($Emu -split ',' | Where-Object { $_ })
 $Renderer = @($Renderer -split ',' | Where-Object { $_ })
 $Boot = @($Boot -split ',' | Where-Object { $_ })
-$Variants = @($Variants -split ',' | Where-Object { $_ })
+$Variants = @($Variants | ForEach-Object { if ($_ -match ';') { $_ -split ';' } elseif ($_ -match '=') { $_ } else { $_ -split ',' } } | Where-Object { $_ })
 foreach ($e in $Emu) { if (-not $Emulators.Contains($e)) { throw "unknown -Emu $e (ours, upstream, plus)" } }
 foreach ($b in $Boot) { if (-not $BootTargets.Contains($b)) { throw "unknown -Boot $b ($($BootTargets.Keys -join ', '))" } }
 
@@ -37,13 +38,16 @@ try {
         foreach ($r in $Renderer) {
             foreach ($b in $Boot) {
               foreach ($v in $Variants) {
-                $name = if ($v -eq 'none') { "$e-$r-$b" } else { "$e-$r-$b-$v" }
+                $vname, $vvalue = if ($v -match '^([^=]+)=(.*)$') { $Matches[1], $Matches[2] } else { $v, '1' }
+                $vtag = ($v -replace '[^A-Za-z0-9_]+', '_').Trim('_')
+                if ($vtag.Length -gt 40) { $vtag = $vtag.Substring(0, 40) }
+                $name = if ($v -eq 'none') { "$e-$r-$b" } else { "$e-$r-$b-$vtag" }
                 Write-Host "=== $name" -ForegroundColor Cyan
                 Set-EmulatorConfig $e $r 0
                 Set-BootSequence $BootTargets[$b]
-                if ($v -ne 'none') { Set-Item -Path "env:$v" -Value '1' }
+                if ($v -ne 'none') { Set-Item -Path "env:$vname" -Value $vvalue }
                 $p = Start-Emulator $e $r
-                if ($v -ne 'none') { Remove-Item -Path "env:$v" }
+                if ($v -ne 'none') { Remove-Item -Path "env:$vname" }
                 $t0 = Get-Date
                 $samples = @()
                 $outcome = 'ok'
@@ -82,7 +86,7 @@ try {
                     $res = "$($samples[-1].W)x$($samples[-1].H)"
                 }
                 if ($outcome -eq 'ok' -and $samples.Count -eq 0) { $outcome = 'no game window / no frames' }
-                "$e,$r,$b$(if ($v -ne 'none') { "-$v" }),$outcome,$alive,$med,$min,$res" | Out-File $summary -Append -Encoding ascii
+                "$e,$r,$b$(if ($v -ne 'none') { "-$vtag" }),$outcome,$alive,$med,$min,$res" | Out-File $summary -Append -Encoding ascii
                 Write-Host "    $outcome; median fps $med, min $min"
               }
             }

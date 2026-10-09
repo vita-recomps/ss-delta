@@ -521,6 +521,33 @@ All are uploaded from memory, not from cached render targets.
 A textured floor in one of them points at NVIDIA's BC1 decoding or at the
 mip chain.
 
+**4090 diag 1 (2026-10-10, `matrix-20261010-021120.zip`).** As is, with
+CPU BC decoding (`SSD_SOFT_BCN`), and with base-mip-only sampling
+(`SSD_MAXLOD0`): all three have **exactly 81.7 %** white floor. So neither
+BC decoding nor the mip chain is involved, and probably not the albedo
+sample at all. **Hypothesis:** something drawn over the floor saturates it
+on NVIDIA.
+* Candidate `5b16f882` reads the framebuffer and adds
+  `texture × vertex colour × alpha` to it (an additive layer). On AMD,
+  skipping it changes nothing.
+
+**4090 diag 2 (prepared).** `diag2.bat` runs the `debug/floor` build 8
+times:
+* as is;
+* `SSD_HIGH_ACC` (forces the shader-interlock path for framebuffer reads);
+* `SSD_SKIP_FRAGS=9a8f3eb3` (control: no floor);
+* five groups of the arena's other 35 fragment shaders skipped.
+
+AMD reference (white share / mean brightness of the floor region):
+
+| Variant | White | Mean |
+|---|---|---|
+| as is, `SSD_HIGH_ACC`, groups 1, 2, 4, 5 | ≈ 21.7 % | 186 |
+| group 3 skipped (`95c836aa a39e7dd7 a3cc810d a9941409 ad07babc af0c9ab6`) | 1.3 % | 158 |
+| floor shader skipped | 0.6 % | 25 |
+
+On AMD, group 3 supplies the floor's bright highlights.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
