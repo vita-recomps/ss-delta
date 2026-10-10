@@ -719,13 +719,16 @@ while it moves. Other 3D objects such as bones are doubled the same way.
 The background behind the book also looks lower resolution than the
 foreground (`menu.png` in the repository root, not committed).
 
-* **Hypothesis:** the game renders the background into a separate
-  low-resolution layer (blur or depth of field) and composites it behind
-  the scene. Our build would sample a stale copy of that layer from an
-  earlier frame. That would be a renderer issue (Phase 7).
-* Not yet compared with the JIT alone, Vita3K-Plus or hardware. Scripted
-  input reaches the save list but not the load confirmation, so the
-  comparison is manual for now.
+* **Not recompilation:** the ghost is the same with `[recompiled]
+  enabled = false`, everything on the JIT (the user, 2026-10-10).
+* **Hardware:** no ghost. There is a bloom glow around objects there, and
+  it stays exactly on them while they move (the user, 2026-10-10).
+* So the ghost is the game's bloom, drawn a frame or more late. Our
+  renderer seems to sample the blurred bloom layer from an earlier frame
+  (**hypothesis:** a render target the game reads back is copied for
+  sampling before the current frame has written it). The red tint and the
+  coarse look are the bloom layer's own.
+* Phase 7. Not yet compared with OpenGL or Vita3K-Plus.
 
 ## Not measured yet
 
