@@ -1,0 +1,499 @@
+From 29a377c8411d8575070606caa005378c8cf54c3b Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:14:45 +0200
+Subject: [PATCH] ss-delta: keyboard and gamepad bindings in ss-delta.ini;
+ keyboard input on the SDL frontend
+
+Only the Qt interface turned keys into Vita buttons, so ss-delta.exe could
+be played with a gamepad only. ss-delta now does it for SDL key events,
+as the Qt keyboard filter does, and releases everything when the window
+loses focus.
+
+[keyboard] binds each Vita button (and the two sticks' directions) to up
+to two keys: W3C codes, single letters or digits, or SDL-style names (Up,
+Return, Left Shift, Keypad 1). [gamepad] binds a Vita button to one SDL
+gamepad button through Vita3K's controller_binds. Unusable lines are
+logged and leave the default.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/CMakeLists.txt        |   2 +-
+ vita3k/ss-delta/input.cpp    | 242 +++++++++++++++++++++++++++++++++++
+ vita3k/ss-delta/input.h      |  52 ++++++++
+ vita3k/ss-delta/main.cpp     |  18 ++-
+ vita3k/ss-delta/settings.cpp |  50 ++++++++
+ vita3k/ss-delta/settings.h   |   4 +
+ 6 files changed, 366 insertions(+), 2 deletions(-)
+ create mode 100644 vita3k/ss-delta/input.cpp
+ create mode 100644 vita3k/ss-delta/input.h
+
+diff --git a/vita3k/CMakeLists.txt b/vita3k/CMakeLists.txt
+index c80c8b72..e31fa4e9 100644
+--- a/vita3k/CMakeLists.txt
++++ b/vita3k/CMakeLists.txt
+@@ -470,7 +470,7 @@ endif()
+ # It runs from the folder Vita3K.exe is built into, whose data and shaders-builtin it uses.
+ if(WIN32)
+ 	add_executable(ss-delta WIN32
+-		ss-delta/main.cpp ss-delta/settings.cpp ss-delta/settings.h
++		ss-delta/main.cpp ss-delta/settings.cpp ss-delta/settings.h ss-delta/input.cpp ss-delta/input.h
+ 		interface.cpp interface.h performance.cpp
+ 		util/src/vc_runtime_checker.cpp
+ 		resource.h Vita3K.ico Vita3K.rc Windows.manifest)
+diff --git a/vita3k/ss-delta/input.cpp b/vita3k/ss-delta/input.cpp
+new file mode 100644
+index 00000000..abfd63a2
+--- /dev/null
++++ b/vita3k/ss-delta/input.cpp
+@@ -0,0 +1,242 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++#include "input.h"
++
++#include <config/state.h>
++#include <ctrl/ctrl.h>
++#include <ctrl/state.h>
++#include <emuenv/state.h>
++#include <util/string_utils.h>
++
++#include <SDL3/SDL_gamepad.h>
++
++#include <cctype>
++#include <mutex>
++
++namespace ss_delta {
++
++using input::PhysicalKeyCode;
++
++namespace {
++
++std::string trim(const std::string &s) {
++    const auto b = s.find_first_not_of(" \t");
++    if (b == std::string::npos)
++        return {};
++    return s.substr(b, s.find_last_not_of(" \t") - b + 1);
++}
++
++std::vector<std::string> split_list(const std::string &s) {
++    std::vector<std::string> out;
++    size_t start = 0;
++    while (start <= s.size()) {
++        const auto comma = s.find(',', start);
++        const auto item = trim(s.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
++        if (!item.empty())
++            out.push_back(item);
++        if (comma == std::string::npos)
++            break;
++        start = comma + 1;
++    }
++    return out;
++}
++
++// A key by its W3C code (KeyX, ArrowUp, ShiftRight ...), a single letter or digit, or the names
++// SDL and decimation.ini use (Up, Return, Left Shift, Keypad 1 ...)
++PhysicalKeyCode parse_key(const std::string &name) {
++    if (const auto code = input::physical_key_from_code_name(name); code != PhysicalKeyCode::Unbound)
++        return code;
++    if (name.size() == 1 && std::isalpha(static_cast<unsigned char>(name[0])))
++        return input::physical_key_from_code_name(std::string("Key") + static_cast<char>(std::toupper(static_cast<unsigned char>(name[0]))));
++    if (name.size() == 1 && std::isdigit(static_cast<unsigned char>(name[0])))
++        return input::physical_key_from_code_name(std::string("Digit") + name);
++    const std::string lower = string_utils::tolower(name);
++    static const std::map<std::string, std::string> aliases{
++        { "up", "ArrowUp" }, { "down", "ArrowDown" }, { "left", "ArrowLeft" }, { "right", "ArrowRight" },
++        { "return", "Enter" }, { "enter", "Enter" }, { "space", "Space" }, { "tab", "Tab" },
++        { "backspace", "Backspace" }, { "escape", "Escape" }, { "esc", "Escape" },
++        { "left shift", "ShiftLeft" }, { "right shift", "ShiftRight" }, { "lshift", "ShiftLeft" }, { "rshift", "ShiftRight" },
++        { "left ctrl", "ControlLeft" }, { "right ctrl", "ControlRight" }, { "lctrl", "ControlLeft" }, { "rctrl", "ControlRight" },
++        { "left alt", "AltLeft" }, { "right alt", "AltRight" }, { "lalt", "AltLeft" }, { "ralt", "AltRight" },
++        { "keypad enter", "NumpadEnter" },
++    };
++    if (const auto it = aliases.find(lower); it != aliases.end())
++        return input::physical_key_from_code_name(it->second);
++    if (lower.starts_with("keypad ") && lower.size() == 8 && std::isdigit(static_cast<unsigned char>(lower[7])))
++        return input::physical_key_from_code_name(std::string("Numpad") + lower[7]);
++    if (lower.size() >= 2 && lower[0] == 'f')
++        return input::physical_key_from_code_name("F" + lower.substr(1));
++    return PhysicalKeyCode::Unbound;
++}
++
++SDL_GamepadButton parse_gamepad_button(const std::string &name) {
++    static const std::map<std::string, SDL_GamepadButton> names{
++        { "south", SDL_GAMEPAD_BUTTON_SOUTH }, { "east", SDL_GAMEPAD_BUTTON_EAST },
++        { "west", SDL_GAMEPAD_BUTTON_WEST }, { "north", SDL_GAMEPAD_BUTTON_NORTH },
++    };
++    const std::string lower = string_utils::tolower(name);
++    if (const auto it = names.find(lower); it != names.end())
++        return it->second;
++    return SDL_GetGamepadButtonFromString(lower.c_str());
++}
++
++} // namespace
++
++void apply_bindings(Config &cfg, const std::map<std::string, std::string> &keyboard,
++    const std::map<std::string, std::string> &gamepad, std::vector<std::string> &warnings) {
++    struct KeyBinding {
++        PhysicalKeyCode Config::*primary;
++        PhysicalKeyCode Config::*alternate;
++    };
++    static const std::map<std::string, KeyBinding> keys{
++        { "cross", { &Config::keyboard_button_cross, &Config::keyboard_button_cross_alt } },
++        { "circle", { &Config::keyboard_button_circle, &Config::keyboard_button_circle_alt } },
++        { "square", { &Config::keyboard_button_square, &Config::keyboard_button_square_alt } },
++        { "triangle", { &Config::keyboard_button_triangle, &Config::keyboard_button_triangle_alt } },
++        { "l", { &Config::keyboard_button_l1, &Config::keyboard_button_l1_alt } },
++        { "r", { &Config::keyboard_button_r1, &Config::keyboard_button_r1_alt } },
++        { "start", { &Config::keyboard_button_start, &Config::keyboard_button_start_alt } },
++        { "select", { &Config::keyboard_button_select, &Config::keyboard_button_select_alt } },
++        { "up", { &Config::keyboard_button_up, &Config::keyboard_button_up_alt } },
++        { "down", { &Config::keyboard_button_down, &Config::keyboard_button_down_alt } },
++        { "left", { &Config::keyboard_button_left, &Config::keyboard_button_left_alt } },
++        { "right", { &Config::keyboard_button_right, &Config::keyboard_button_right_alt } },
++        { "analog_up", { &Config::keyboard_leftstick_up, &Config::keyboard_leftstick_up_alt } },
++        { "analog_down", { &Config::keyboard_leftstick_down, &Config::keyboard_leftstick_down_alt } },
++        { "analog_left", { &Config::keyboard_leftstick_left, &Config::keyboard_leftstick_left_alt } },
++        { "analog_right", { &Config::keyboard_leftstick_right, &Config::keyboard_leftstick_right_alt } },
++        { "right_analog_up", { &Config::keyboard_rightstick_up, &Config::keyboard_rightstick_up_alt } },
++        { "right_analog_down", { &Config::keyboard_rightstick_down, &Config::keyboard_rightstick_down_alt } },
++        { "right_analog_left", { &Config::keyboard_rightstick_left, &Config::keyboard_rightstick_left_alt } },
++        { "right_analog_right", { &Config::keyboard_rightstick_right, &Config::keyboard_rightstick_right_alt } },
++    };
++    for (const auto &[name, value] : keyboard) {
++        const auto it = keys.find(name);
++        if (it == keys.end()) {
++            warnings.push_back("keyboard." + name + " (no such Vita button)");
++            continue;
++        }
++        const auto list = split_list(value);
++        std::vector<PhysicalKeyCode> codes;
++        for (const auto &key : list) {
++            const auto code = parse_key(key);
++            if (code == PhysicalKeyCode::Unbound)
++                warnings.push_back("keyboard." + name + ": unknown key \"" + key + "\"");
++            else
++                codes.push_back(code);
++        }
++        if (codes.empty() && !list.empty())
++            continue; // nothing usable: keep the default rather than unbind the button
++        if (codes.size() > 2)
++            warnings.push_back("keyboard." + name + ": only two keys per button, the rest are ignored");
++        cfg.*(it->second.primary) = codes.size() > 0 ? codes[0] : PhysicalKeyCode::Unbound;
++        cfg.*(it->second.alternate) = codes.size() > 1 ? codes[1] : PhysicalKeyCode::Unbound;
++    }
++
++    // Vita3K's gamepad bindings: controller_binds[slot] is the gamepad button that presses the
++    // Vita button the slot stands for
++    static const std::map<std::string, SDL_GamepadButton> slots{
++        { "cross", SDL_GAMEPAD_BUTTON_SOUTH }, { "circle", SDL_GAMEPAD_BUTTON_EAST },
++        { "square", SDL_GAMEPAD_BUTTON_WEST }, { "triangle", SDL_GAMEPAD_BUTTON_NORTH },
++        { "l", SDL_GAMEPAD_BUTTON_LEFT_SHOULDER }, { "r", SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER },
++        { "start", SDL_GAMEPAD_BUTTON_START }, { "select", SDL_GAMEPAD_BUTTON_BACK },
++        { "up", SDL_GAMEPAD_BUTTON_DPAD_UP }, { "down", SDL_GAMEPAD_BUTTON_DPAD_DOWN },
++        { "left", SDL_GAMEPAD_BUTTON_DPAD_LEFT }, { "right", SDL_GAMEPAD_BUTTON_DPAD_RIGHT },
++    };
++    for (const auto &[name, value] : gamepad) {
++        const auto it = slots.find(name);
++        if (it == slots.end()) {
++            warnings.push_back("gamepad." + name + " (no such Vita button)");
++            continue;
++        }
++        const auto list = split_list(value);
++        if (list.empty())
++            continue;
++        if (list.size() > 1)
++            warnings.push_back("gamepad." + name + ": one gamepad button per Vita button, the rest are ignored");
++        const SDL_GamepadButton button = parse_gamepad_button(list[0]);
++        if (button == SDL_GAMEPAD_BUTTON_INVALID) {
++            warnings.push_back("gamepad." + name + ": unknown gamepad button \"" + list[0] + "\"");
++            continue;
++        }
++        if (static_cast<size_t>(it->second) < cfg.controller_binds.size())
++            cfg.controller_binds[it->second] = static_cast<short>(button);
++    }
++}
++
++void Keyboard::key(EmuEnvState &emuenv, int scancode, bool is_pressed) {
++    // SDL scancodes are USB HID keyboard usages, as are the physical key codes
++    const auto code = static_cast<PhysicalKeyCode>(0x070000 | (scancode & 0xffff));
++    if (input::physical_key_code_name(code).empty())
++        return;
++    if (is_pressed)
++        pressed.insert(code);
++    else
++        pressed.erase(code);
++    update(emuenv);
++}
++
++void Keyboard::release_all(EmuEnvState &emuenv) {
++    pressed.clear();
++    update(emuenv);
++}
++
++// As the Qt interface does it (gui-qt/src/ctrl_keyboard_filter.cpp)
++void Keyboard::update(EmuEnvState &emuenv) {
++    const auto &cfg = emuenv.cfg;
++    const auto down = [this](PhysicalKeyCode primary, PhysicalKeyCode alternate) {
++        return (primary != PhysicalKeyCode::Unbound && pressed.contains(primary))
++            || (alternate != PhysicalKeyCode::Unbound && pressed.contains(alternate));
++    };
++    const auto axis = [&](PhysicalKeyCode neg, PhysicalKeyCode neg_alt, PhysicalKeyCode pos, PhysicalKeyCode pos_alt) {
++        return static_cast<float>(static_cast<int>(down(pos, pos_alt)) - static_cast<int>(down(neg, neg_alt)));
++    };
++
++    uint32_t buttons = 0, buttons_ext = 0;
++    const auto set = [&](PhysicalKeyCode primary, PhysicalKeyCode alternate, uint32_t bit, uint32_t &mask) {
++        if (down(primary, alternate))
++            mask |= bit;
++    };
++    for (uint32_t *mask : { &buttons, &buttons_ext }) {
++        set(cfg.keyboard_button_select, cfg.keyboard_button_select_alt, SCE_CTRL_SELECT, *mask);
++        set(cfg.keyboard_button_start, cfg.keyboard_button_start_alt, SCE_CTRL_START, *mask);
++        set(cfg.keyboard_button_up, cfg.keyboard_button_up_alt, SCE_CTRL_UP, *mask);
++        set(cfg.keyboard_button_right, cfg.keyboard_button_right_alt, SCE_CTRL_RIGHT, *mask);
++        set(cfg.keyboard_button_down, cfg.keyboard_button_down_alt, SCE_CTRL_DOWN, *mask);
++        set(cfg.keyboard_button_left, cfg.keyboard_button_left_alt, SCE_CTRL_LEFT, *mask);
++        set(cfg.keyboard_button_triangle, cfg.keyboard_button_triangle_alt, SCE_CTRL_TRIANGLE, *mask);
++        set(cfg.keyboard_button_circle, cfg.keyboard_button_circle_alt, SCE_CTRL_CIRCLE, *mask);
++        set(cfg.keyboard_button_cross, cfg.keyboard_button_cross_alt, SCE_CTRL_CROSS, *mask);
++        set(cfg.keyboard_button_square, cfg.keyboard_button_square_alt, SCE_CTRL_SQUARE, *mask);
++    }
++    set(cfg.keyboard_button_l1, cfg.keyboard_button_l1_alt, SCE_CTRL_L, buttons);
++    set(cfg.keyboard_button_r1, cfg.keyboard_button_r1_alt, SCE_CTRL_R, buttons);
++    set(cfg.keyboard_button_l1, cfg.keyboard_button_l1_alt, SCE_CTRL_L1, buttons_ext);
++    set(cfg.keyboard_button_r1, cfg.keyboard_button_r1_alt, SCE_CTRL_R1, buttons_ext);
++
++    const std::lock_guard<std::mutex> lock(emuenv.ctrl.mutex);
++    auto &kb = emuenv.ctrl.keyboard_state;
++    kb.buttons = buttons;
++    kb.buttons_ext = buttons_ext;
++    kb.axes[0] = axis(cfg.keyboard_leftstick_left, cfg.keyboard_leftstick_left_alt, cfg.keyboard_leftstick_right, cfg.keyboard_leftstick_right_alt);
++    kb.axes[1] = axis(cfg.keyboard_leftstick_up, cfg.keyboard_leftstick_up_alt, cfg.keyboard_leftstick_down, cfg.keyboard_leftstick_down_alt);
++    kb.axes[2] = axis(cfg.keyboard_rightstick_left, cfg.keyboard_rightstick_left_alt, cfg.keyboard_rightstick_right, cfg.keyboard_rightstick_right_alt);
++    kb.axes[3] = axis(cfg.keyboard_rightstick_up, cfg.keyboard_rightstick_up_alt, cfg.keyboard_rightstick_down, cfg.keyboard_rightstick_down_alt);
++}
++
++} // namespace ss_delta
+diff --git a/vita3k/ss-delta/input.h b/vita3k/ss-delta/input.h
+new file mode 100644
+index 00000000..e761c853
+--- /dev/null
++++ b/vita3k/ss-delta/input.h
+@@ -0,0 +1,52 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// Keyboard and gamepad bindings from ss-delta.ini, and keyboard input for the SDL frontend (which,
++// unlike the Qt interface, does not turn keys into Vita buttons itself).
++#pragma once
++
++#include <input/physical_key.h>
++
++#include <map>
++#include <set>
++#include <string>
++#include <vector>
++
++struct Config;
++struct EmuEnvState;
++
++namespace ss_delta {
++
++// Applies [keyboard] and [gamepad] (Vita button -> keys / gamepad button) to the config; lines
++// that can't be used are added to `warnings`.
++void apply_bindings(Config &cfg, const std::map<std::string, std::string> &keyboard,
++    const std::map<std::string, std::string> &gamepad, std::vector<std::string> &warnings);
++
++// Keys held down, turned into buttons and stick axes in the controller's keyboard state
++class Keyboard {
++public:
++    // an SDL scancode went down or up
++    void key(EmuEnvState &emuenv, int scancode, bool pressed);
++    // the window lost focus: release everything
++    void release_all(EmuEnvState &emuenv);
++
++private:
++    void update(EmuEnvState &emuenv);
++    std::set<input::PhysicalKeyCode> pressed;
++};
++
++} // namespace ss_delta
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index 6dfe04bd..cba67063 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -20,6 +20,7 @@
+ // to the executable. The recompiled modules (ssd_aot_<module>.dll, generated locally from the
+ // player's own dump) are loaded from the same folder.
+ 
++#include "input.h"
+ #include "settings.h"
+ 
+ #include <app/functions.h>
+@@ -147,6 +148,12 @@ int main(int argc, char *argv[]) {
+     }
+     if (emuenv.cfg.controller_binds.size() != 15 || emuenv.cfg.controller_axis_binds.size() != 6)
+         app::reset_controller_binding(emuenv);
++    {
++        std::vector<std::string> binding_warnings;
++        ss_delta::apply_bindings(emuenv.cfg, settings.keyboard, settings.gamepad, binding_warnings);
++        for (const auto &line : binding_warnings)
++            LOG_WARN("ss-delta.ini: {}", line);
++    }
+ 
+     init_libraries(emuenv);
+     if (!app::init_apps_list(emuenv)) {
+@@ -163,6 +170,7 @@ int main(int argc, char *argv[]) {
+ 
+     // window: size and fullscreen from the settings, F11 or Alt+Enter switch, frame rate in the title
+     SDL_Window *window = nullptr;
++    ss_delta::Keyboard keyboard;
+     auto last_title = std::chrono::steady_clock::now();
+     sdl_frontend::Hooks hooks;
+     hooks.on_window = [&](SDL_Window *w) {
+@@ -188,8 +196,15 @@ int main(int argc, char *argv[]) {
+         };
+         switch (event.type) {
+         case SDL_EVENT_KEY_DOWN:
+-            if (!event.key.repeat && (event.key.key == SDLK_F11 || (event.key.key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT))))
++            if (event.key.repeat)
++                break;
++            if (event.key.key == SDLK_F11 || (event.key.key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT)))
+                 SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN));
++            else
++                keyboard.key(emuenv, event.key.scancode, true);
++            break;
++        case SDL_EVENT_KEY_UP:
++            keyboard.key(emuenv, event.key.scancode, false);
+             break;
+         case SDL_EVENT_MOUSE_MOTION:
+             set_mouse(event.motion.x, event.motion.y);
+@@ -208,6 +223,7 @@ int main(int argc, char *argv[]) {
+             touch.renderer_focused = true;
+             break;
+         case SDL_EVENT_WINDOW_FOCUS_LOST:
++            keyboard.release_all(emuenv);
+             touch.renderer_focused = false;
+             touch.mouse_button_left = false;
+             touch.mouse_button_right = false;
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index 46a81507..353b7b57 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -63,6 +63,50 @@ enabled = true
+ log_level = info
+ ; The Vulkan validation layer (needs the Vulkan SDK; slow).
+ validation_layer = false
++
++[keyboard]
++; Vita button = key(s), up to two, separated by commas. Key names: A-Z, 0-9, Up, Down, Left,
++; Right, Return, Space, Tab, Backspace, Escape, Left Shift, Right Shift, Left Ctrl, Right Ctrl,
++; Left Alt, Right Alt, F1-F12, Keypad 0-9, or the W3C key codes (Comma, Period, Slash, Semicolon,
++; Quote, BracketLeft, Minus, Equal ...). The mouse is the touchscreen: left button front, right
++; button rear.
++cross = X
++circle = C
++square = Z
++triangle = V
++l = Q
++r = E
++start = Return
++select = Right Shift
++up = Up
++down = Down
++left = Left
++right = Right
++analog_up = W
++analog_down = S
++analog_left = A
++analog_right = D
++right_analog_up = I
++right_analog_down = K
++right_analog_left = J
++right_analog_right = L
++
++[gamepad]
++; Vita button = one gamepad button: south, east, west, north (the face buttons; on an Xbox pad
++; A, B, X, Y), leftshoulder, rightshoulder, start, back, guide, dpup, dpdown, dpleft, dpright,
++; leftstick, rightstick. The gamepad's sticks are the Vita's sticks.
++cross = south
++circle = east
++square = west
++triangle = north
++l = leftshoulder
++r = rightshoulder
++start = start
++select = back
++up = dpup
++down = dpdown
++left = dpleft
++right = dpright
+ )";
+ 
+ std::string trim(const std::string &s) {
+@@ -162,6 +206,12 @@ Settings load_settings(const fs::path &dir) {
+             out.warnings.push_back("debug.log_level = " + *v);
+     }
+     get_bool("debug.validation_layer", out.validation_layer);
++    for (const auto &[key, value] : values) {
++        if (key.starts_with("keyboard."))
++            out.keyboard[key.substr(9)] = value;
++        else if (key.starts_with("gamepad."))
++            out.gamepad[key.substr(8)] = value;
++    }
+     return out;
+ }
+ 
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index 45d8747d..0f041d8e 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -20,6 +20,7 @@
+ 
+ #include <util/fs.h>
+ 
++#include <map>
+ #include <string>
+ #include <vector>
+ 
+@@ -43,6 +44,9 @@ struct Settings {
+     int log_level = 2; // spdlog: 0 trace ... 6 off
+     bool validation_layer = false;
+ 
++    // [keyboard] and [gamepad]: Vita button -> keys / gamepad button, applied by input.cpp
++    std::map<std::string, std::string> keyboard, gamepad;
++
+     std::vector<std::string> warnings; // lines that could not be used
+ };
+ 
+-- 
+2.56.0.windows.2
+

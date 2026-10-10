@@ -329,7 +329,12 @@ and ult, and a clean differential log. **Met** (2026-10-10).
     F11/Alt+Enter, vsync, filter, volume, recompiled modules, logging). The
     field runs at 29–30 fps, 99.9% native, and `v3kdrive start` drives it
     (fps title, input pipe, screenshots).
-  * ☐ Keyboard and gamepad bindings in `ss-delta.ini`.
+  * ☑ Keyboard and gamepad bindings in `ss-delta.ini` (`[keyboard]`: up to
+    two keys per Vita button and stick direction; `[gamepad]`: one SDL
+    gamepad button per Vita button). The SDL front end had no keyboard
+    input at all (only Qt mapped keys); `ss-delta.exe` now maps them
+    itself. The mouse is the touchscreen, and typed text reaches the
+    game's keyboard dialogs.
   * ☐ Its own name, icon and version resource (it reuses `Vita3K.rc`).
   * ☐ A self-contained folder: the exe, `data/`, `shaders-builtin/`, the
     runtime DLLs and the locally built `ssd_aot_*.dll`, without Qt.
