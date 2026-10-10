@@ -1,0 +1,47 @@
+From 406e772050597e297150b0947673a4e5f8d52a27 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 20:30:00 +0200
+Subject: [PATCH] ss-delta: typed text reaches the game's keyboard dialogs
+
+SDL delivers text input events only after SDL_StartTextInput; the desktop
+session never called it, so the player name could not be typed. ss-delta
+turns text input on while an IME dialog is active.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/main.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index 7189f558..6dfe04bd 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -28,6 +28,7 @@
+ #include <config/version.h>
+ #include <display/state.h>
+ #include <emuenv/state.h>
++#include <ime/functions.h>
+ #include <modules/module_parent.h>
+ #include <sdl-frontend/session.h>
+ #include <touch/state.h>
+@@ -216,6 +217,17 @@ int main(int argc, char *argv[]) {
+         }
+     };
+     hooks.on_tick = [&] {
++        // typed text reaches the game's keyboard dialogs (the player name) only while SDL's text
++        // input is on; the session handles Enter, Backspace and Escape itself
++        if (window) {
++            const bool ime = is_any_ime_active(emuenv);
++            if (ime != SDL_TextInputActive(window)) {
++                if (ime)
++                    SDL_StartTextInput(window);
++                else
++                    SDL_StopTextInput(window);
++            }
++        }
+         const auto now = std::chrono::steady_clock::now();
+         if (!window || now - last_title < std::chrono::milliseconds(500))
+             return;
+-- 
+2.56.0.windows.2
+
