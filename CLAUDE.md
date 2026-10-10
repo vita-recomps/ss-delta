@@ -28,7 +28,8 @@ conventions.
   game is in `fs/ux0/app/PCSA00152`. Firmware 3.74 is installed.
 - Vulkan is the renderer ([D4](docs/decisions.md) update 3). Our fork runs it
   on this machine's Radeon 760M; the upstream release in `extracted/vita3k`
-  still crashes there (AMD compiler bug, see `docs/02-baseline.md`).
+  still crashes there (AMD compiler bug, see `docs/02-baseline.md`), and so
+  does Vita3K-Plus 1.2 since AMD driver 26.8.1 (use `OpenGL` for those two).
 - Our build keeps its own config, shader cache and log next to its exe
   (`build/vita3k/bin/RelWithDebInfo/`); only `pref-path` points at the
   shared `extracted/vita3k/fs/`. Edits to cached `.spv` files must go there.

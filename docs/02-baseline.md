@@ -617,6 +617,34 @@ and the native build (`SSD_AOT`) both render the field as in
 `fix4-vk-elder.png`: solid cloak, correct body. After any run of a build
 whose shader translation differs, move the title's cache folder aside.
 
+
+## Vita3K-Plus on Vulkan crashes with AMD driver 26.8.1 (2026-10-10)
+
+Plus 1.2's Vulkan runs above (2026-10-09 19:17–19:20) predate the driver
+update. `setupapi.dev.log` dates the Adrenalin 26.8.1 install (Windows
+driver 32.0.31041.1004) to 2026-10-09 22:42. Since then, every Plus Vulkan
+boot crashes 2–3 s after loading `libssl`, both to the title and to
+`ELDER DEFAULT MAP`:
+
+* faulting module `amdvlk64.dll` 32.0.31041.1004;
+* exception `0xc0000005`;
+* offset `0x2d5a411`.
+
+None of these were the cause:
+
+* the shader cache: Plus's own cache is unchanged since 2026-10-09 19:20;
+* a second Vita3K instance running;
+* the config.
+
+**Hypothesis:** the same kind of AMD shader-compiler fault as upstream's
+(see patch 0002), which the newer driver now also hits with Plus's shaders.
+Not confirmed: Plus doesn't log the faulting stack.
+
+Plus on OpenGL still boots to the title. Our fork on Vulkan is unaffected.
+For Vulkan rendering comparisons on this machine, our fork is now the
+reference. Plus on Vulkan needs the old driver or another GPU (the RTX 4090
+runs).
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs
