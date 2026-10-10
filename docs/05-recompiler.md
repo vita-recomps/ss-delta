@@ -88,33 +88,65 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
 
 ## Coverage (1.30)
 
-Native code covers every Thumb function that has no NEON instruction.
-The others go to the fallback CPU through `call_indirect`.
+Native code covers every Thumb function, NEON included (see
+[NEON](#neon)). The eboot's 28 ARM-mode functions still go to the fallback
+CPU through `call_indirect`.
 
 | | eboot | libc | libfios2 | libult |
 |---|---|---|---|---|
-| functions recompiled | 28,356 | 1,530 | 567 | 157 |
-| left to dynarmic: NEON | 5,577 | 5 | 0 | 0 |
+| functions recompiled | 33,933 | 1,535 | 567 | 157 |
 | left to dynarmic: ARM mode | 28 | 0 | 0 | 0 |
-| instructions recompiled | 2,046,448 | 79,333 | 47,681 | 21,303 |
+| instructions recompiled | 3,725,325 | 82,028 | 47,681 | 21,303 |
 | unsupported instructions | 0 | 0 | 0 | 0 |
-| flag writes dropped | 1,703,841 | 64,559 | 37,832 | 14,111 |
-| buckets | 91 | 4 | 3 | 1 |
+| flag writes dropped | 2,481,100 | 67,257 | 37,832 | 14,111 |
+| buckets | 175 | 4 | 3 | 1 |
 
-The libraries' code is generated at their ELF addresses. The addresses
-Vita3K loads them at are still open (Phase 5).
+The libraries' code is generated at their ELF addresses. Vita3K loads them
+elsewhere (libc at `0x8031e000`), so they don't run natively yet (Phase 5).
 
-### NEON (input to Phase 5)
+### NEON
 
-None of the 5,577 eboot functions that use NEON translates completely yet.
-Most are blocked by a few common forms:
+`recomp/armrecomp/neon.py` translates Advanced SIMD instructions into calls
+to `recomp/runtime/neon.h`. That covers all 97 forms the eboot uses and the
+6 in libc:
 
-* `vmov.i q, #imm` (zeroing a quad register) is the **only** blocker in
-  1,901 functions;
-* `vdup q, d` is the only blocker in 138 more.
+* element-wise, by-scalar, accumulating, long, wide, narrowing, pairwise,
+  saturating (sets FPSCR.QC), shifts, comparisons and bitwise selects;
+* `vext`/`vrev64`/`vtrn`/`vzip`/`vtbl`/`vdup` and immediate moves (the
+  `vmov.i64` immediate is decoded from the instruction bits);
+* `vld1`/`vst1` with whole registers, single lanes or all lanes, and
+  writeback.
 
-Supporting those two forms would make about 37% of the NEON functions
-native.
+Floating-point NEON follows ARM's standard FPSCR value, not FPSCR: denormal
+inputs and results flush to zero and every NaN result is the default NaN.
+
+* `vmla`/`vmls` are an unfused multiply, then an add.
+* `vrecps`/`vrsqrts` are fused, as dynarmic does them.
+* `vrecpe`/`vrsqrte` use dynarmic's estimate tables, bit for bit.
+* `vcvtb/vcvtt.f32.f16` (VFP, libc) are exact.
+
+Tests add special float inputs (denormals, infinities, quiet and signalling
+NaNs, and ±0) to the random states. The only bug they found was `vrsqrts`
+overflowing before its halving; it now computes `1.5 + a·(b/2)` in one fused
+step.
+
+**Effect in the fork** (60 s runs, `SSD_AOT_COUNT`, last 5 s):
+
+| | before NEON | with NEON |
+|---|---|---|
+| Title | 26% native | **54%** |
+| `ELDER DEFAULT MAP` | 36% native | **71%** |
+| JIT → native entries in 60 s | about 7 M | about 4,500 |
+
+Frame rate stays at 29.6 fps. What remains on the JIT, called from native
+code:
+
+* libc through its LLE stubs: `memcpy`, `strlen`, `wmemcpy`, `wcslen`,
+  `strcmp` and `sprintf`;
+* libult's `sceUltQueuePop`/`Push`;
+* libfios2's `sceFiosFHRead`;
+* the eboot's ARM-mode functions (`81a1be08`, `81a1cd48`, `81a1d600`,
+  `81a20000`: VFP-heavy routines).
 
 ## Tests
 
@@ -147,7 +179,7 @@ exception bits, and every memory write.
 
 | | eboot | libc | libfios2 | libult |
 |---|---|---|---|---|
-| instruction tests (forms) | 5,364 (554) | 2,960 (380) | 2,176 (332) | 869 (152) |
+| instruction tests (forms) | 7,531 | 3,000 | 2,176 (332) | 869 (152) |
 | failing | **0** | **0** | **0** | **0** |
 | function tests (leaf functions with control flow) | 300 of 2,587 | 118 of 118 | 47 of 47 | 3 of 3 |
 | failing | **0** | **0** | **0** | **0** |
@@ -177,7 +209,7 @@ Bugs the suite found while it was brought up:
 | sum of per-object compile times | 18 min for the eboot |
 | slowest bucket alone | `bucket_010`: 23 s, 435 MB peak working set |
 | `gen_eboot.lib` | 81.6 MB (libc 3.4, libfios2 1.8, libult 0.6) |
-| `ssd_aot_eboot.dll` | 50 MB; the eboot alone builds in 4–5 min |
+| `ssd_aot_eboot.dll` | 90 MB with NEON (175 buckets, 9.8 min with 4 jobs); 50 MB before |
 
 Compile time doesn't follow source size: the largest source file,
 `bucket_008` (4.2 MB), compiles in 3 s. **Hypothesis:** the slow buckets
@@ -202,6 +234,13 @@ differential mode). These are patches 0007 and 0008.
 | `SSD_AOT_TRACE=<N>` | log the first N native calls with their registers |
 | `SSD_AOT_DUMP=<file>` | write the module's code as guest memory holds it at verification |
 | `SSD_TRACE_IMPORTS=<file>` | every HLE call with arguments and result, flushed per line |
+
+Differential mode is not free of side effects. Undoing the shadow's writes
+can roll back a value another thread changed in between. At
+`SSD_AOT_DIFF=20` the field visibly darkened after two minutes, which the
+same build without it doesn't do. Use it for checking, not for long play.
+It also only samples JIT → native boundaries, and once nearly everything is
+native those are rare (168 checks in 120 s with NEON native).
 
 The log is asynchronous and loses its tail when the process is killed. Use
 `SSD_AOT_STATS` and `SSD_TRACE_IMPORTS` for anything that has to survive.

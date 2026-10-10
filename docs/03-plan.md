@@ -268,20 +268,24 @@ Design: [D7](decisions.md). Details and numbers:
 
 * ☑ Boot to the title with the AOT build loaded. Title and field render the
   same as the JIT build, at 30 fps.
-* ☐ **At least 80% of executed guest instructions native at the title.**
+* ◐ **At least 80% of executed guest instructions native at the title.**
+  With Phase 5's NEON layer (done early, 2026-10-10): **54% at the title,
+  71% in the field.** What remains is libc and the other LLE libraries, plus
+  the eboot's 28 ARM-mode functions.
+  Before NEON:
   Measured: **26% at the title, 36% in the field.** Nearly all the
   remaining JIT time is in eboot functions that contain NEON, such as
   `8188c41e` (28 KB, 1,275 NEON instructions) and the integer-NEON
   functions at `81a0a130`–`81a0e1f4`, plus libc through its LLE stubs.
-  Meeting this needs Phase 5's NEON layer; nothing else in Phase 4 can move
-  it.
 * ☑ Zero differential mismatches over 1,000 frames of `ELDER DEFAULT MAP`
   idle. Measured: 11,181 frames and 116,609 checked calls, 0 mismatches.
   22,387 calls were skipped (HLE calls 20,372; atomics 2,015).
 
 ## Phase 5 — NEON, ARM mode and the bundled modules (L) ☐
 
-* ☐ **NEON layer** on SIMDe or hand-written SSE4.1/AVX2.
+* ☑ **NEON layer**: portable C++ templates (`recomp/runtime/neon.h`), not
+  SIMDe or intrinsics. All 97 eboot forms and the 6 libc forms; 0 failing in
+  11,576 dynarmic tests. See [05-recompiler](05-recompiler.md#neon).
   * Start with `vmov.i q, #imm` and `vdup q, d`. They are the only NEON
     forms in 2,039 of the eboot's 5,577 NEON functions
     ([05-recompiler](05-recompiler.md#neon-input-to-phase-5)).
