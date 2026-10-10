@@ -1,0 +1,251 @@
+From 4586a6d35db5d03cf0ddb8c9cc0704fbfd55e4f8 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 01:02:38 +0200
+Subject: [PATCH] Build option VITA3K_DYNARMIC: a build without the JIT runs
+ recompiled code only
+
+With VITA3K_DYNARMIC=OFF, dynarmic and mcl are not built, the cpu library
+leaves DynarmicCPU out and every thread runs on NativeCPU. The hooks of
+recompiled code move to aot_hooks.cpp, shared by both backends.
+
+Soul Sacrifice Delta's field runs at 30 fps from such a build, which has
+no JIT at all.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                  |  2 +
+ external/CMakeLists.txt         |  2 +
+ vita3k/cpu/CMakeLists.txt       | 10 +++--
+ vita3k/cpu/src/aot_hooks.cpp    | 65 +++++++++++++++++++++++++++++++++
+ vita3k/cpu/src/cpu.cpp          |  9 ++++-
+ vita3k/cpu/src/dynarmic_cpu.cpp | 37 -------------------
+ 6 files changed, 84 insertions(+), 41 deletions(-)
+ create mode 100644 vita3k/cpu/src/aot_hooks.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d9edf977..f2117079 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -158,6 +158,8 @@ macro(boost_compile)
+ 	endif()
+ endmacro(boost_compile)
+ 
++# ss-delta: without the JIT only recompiled code runs (cpu/impl/native_cpu.h)
++option(VITA3K_DYNARMIC "Build the dynarmic JIT" ON)
+ option(VITA3K_FORCE_CUSTOM_BOOST "Force Vita3K build process to use the Boost version included with the repository" OFF)
+ option(VITA3K_FORCE_SYSTEM_BOOST "Force Vita3K build process to use the Boost version in the system and CMake's default paths and ignore the Boost version included with Vita3K" OFF)
+ 
+diff --git a/external/CMakeLists.txt b/external/CMakeLists.txt
+index 794f8368..c90d1305 100644
+--- a/external/CMakeLists.txt
++++ b/external/CMakeLists.txt
+@@ -121,6 +121,7 @@ if(WIN32)
+ 	target_link_libraries(winsock INTERFACE WSOCK32 WS2_32 IPHLPAPI)
+ endif()
+ 
++if(VITA3K_DYNARMIC)
+ set(DYNARMIC_TESTS OFF CACHE BOOL "")
+ set(DYNARMIC_NO_BUNDLED_FMT ON CACHE BOOL "")
+ set(DYNARMIC_FRONTENDS "A32" CACHE STRING "")
+@@ -133,6 +134,7 @@ if(MSVC)
+ 		set_property(TARGET mcl PROPERTY COMPILE_OPTIONS ${MCL_COMPILE_OPTIONS})
+ 	endif()
+ endif()
++endif()
+ 
+ add_library(vita-toolchain INTERFACE)
+ target_include_directories(vita-toolchain INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/vita-toolchain/src")
+diff --git a/vita3k/cpu/CMakeLists.txt b/vita3k/cpu/CMakeLists.txt
+index d02e75c5..3c7ad19a 100644
+--- a/vita3k/cpu/CMakeLists.txt
++++ b/vita3k/cpu/CMakeLists.txt
+@@ -6,16 +6,15 @@ include/cpu/common.h
+ include/cpu/functions.h
+ include/cpu/impl/aot_hooks.h
+ include/cpu/impl/aot_owner.h
+-include/cpu/impl/dynarmic_cpu.h
+ include/cpu/impl/interface.h
+ include/cpu/impl/native_cpu.h
+ include/cpu/disasm/functions.h
+ include/cpu/disasm/state.h
+ 
+ src/aot.cpp
++src/aot_hooks.cpp
+ src/disasm.cpp
+ src/cpu.cpp
+-src/dynarmic_cpu.cpp
+ src/native_cpu.cpp
+ )
+ 
+@@ -29,4 +28,9 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCE_LIST})
+ 
+ target_include_directories(cpu PUBLIC include)
+ target_link_libraries(cpu PUBLIC mem util)
+-target_link_libraries(cpu PRIVATE dynarmic capstone merry::mcl)
++target_link_libraries(cpu PRIVATE capstone)
++if(VITA3K_DYNARMIC)
++	target_sources(cpu PRIVATE include/cpu/impl/dynarmic_cpu.h src/dynarmic_cpu.cpp)
++	target_link_libraries(cpu PRIVATE dynarmic merry::mcl)
++	target_compile_definitions(cpu PRIVATE VITA3K_DYNARMIC=1)
++endif()
+diff --git a/vita3k/cpu/src/aot_hooks.cpp b/vita3k/cpu/src/aot_hooks.cpp
+new file mode 100644
+index 00000000..897fdcc9
+--- /dev/null
++++ b/vita3k/cpu/src/aot_hooks.cpp
+@@ -0,0 +1,65 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// The hooks recompiled code calls (aot_abi.h AotHost), for whichever CPU it runs on (AotOwner)
++
++#include <cpu/aot.h>
++#include <cpu/impl/aot_hooks.h>
++#include <cpu/impl/aot_owner.h>
++#include <util/log.h>
++
++namespace {
++
++AotOwner &aot_owner(armrecomp::GuestContext *ctx) {
++    return *static_cast<AotOwner *>(ctx->embedder);
++}
++
++} // namespace
++
++namespace aot_hooks {
++
++void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr) {
++    if (const AotFn fn = aot_lookup(addr)) {
++        aot_owner(ctx).aot_call_native(addr, fn);
++        return;
++    }
++    if (!(addr & 1)) {
++        // ARM code without native code may be an import stub reached through a pointer (the
++        // eboot's __tls_get_addr): the import path calls its HLE function or native export
++        // directly, and anything else as aot_call_guest does
++        aot_owner(ctx).aot_call_import(addr);
++        return;
++    }
++    aot_owner(ctx).aot_call_guest(addr);
++}
++
++void call_import(armrecomp::GuestContext *ctx, uint32_t stub_addr) {
++    aot_owner(ctx).aot_call_import(stub_addr);
++}
++
++void escape(armrecomp::GuestContext *, uint32_t pc) {
++    aot_count_escape(pc);
++    throw AotEscape{ pc };
++}
++
++void unsupported(armrecomp::GuestContext *, uint32_t pc) {
++    LOG_ERROR("AOT: no native code for the instruction at {}", log_hex(pc));
++    aot_count_escape(pc);
++    throw AotEscape{ pc };
++}
++
++} // namespace aot_hooks
+diff --git a/vita3k/cpu/src/cpu.cpp b/vita3k/cpu/src/cpu.cpp
+index 25f1653b..8bc9afac 100644
+--- a/vita3k/cpu/src/cpu.cpp
++++ b/vita3k/cpu/src/cpu.cpp
+@@ -18,7 +18,9 @@
+ #include <cpu/disasm/functions.h>
+ #include <cpu/functions.h>
+ #include <cpu/aot.h>
++#ifdef VITA3K_DYNARMIC
+ #include <cpu/impl/dynarmic_cpu.h>
++#endif
+ #include <cpu/impl/native_cpu.h>
+ #include <cpu/impl/interface.h>
+ #include <cpu/state.h>
+@@ -49,11 +51,16 @@ CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, M
+         return CPUStatePtr();
+     }
+ 
+-    // ss-delta: SSD_AOT_NATIVE=1 runs threads on recompiled code alone, without the JIT
++    // ss-delta: SSD_AOT_NATIVE=1 runs threads on recompiled code alone, without the JIT; a build
++    // without the JIT (VITA3K_DYNARMIC=OFF) always does
++#ifdef VITA3K_DYNARMIC
+     if (aot_native_cpu())
+         state->cpu = std::make_unique<NativeCPU>(state.get(), processor_id);
+     else
+         state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
++#else
++    state->cpu = std::make_unique<NativeCPU>(state.get(), processor_id);
++#endif
+ 
+     return state;
+ }
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 5048f782..18979c8e 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -630,10 +630,6 @@ namespace {
+ 
+ constexpr auto AOT_HALT = Dynarmic::HaltReason::UserDefined7;
+ 
+-AotOwner &aot_owner(armrecomp::GuestContext *ctx) {
+-    return *static_cast<AotOwner *>(ctx->embedder);
+-}
+-
+ } // namespace
+ 
+ int DynarmicCPU::run() {
+@@ -862,39 +858,6 @@ void DynarmicCPU::aot_call_native(uint32_t addr, AotFn fn) {
+         aot_diff_compare(addr & ~1u, shadow_result);
+ }
+ 
+-namespace aot_hooks {
+-
+-void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr) {
+-    if (const AotFn fn = aot_lookup(addr)) {
+-        aot_owner(ctx).aot_call_native(addr, fn);
+-        return;
+-    }
+-    if (!(addr & 1)) {
+-        // ARM code without native code may be an import stub reached through a pointer (the
+-        // eboot's __tls_get_addr): the import path calls its HLE function or native export
+-        // directly, and runs anything else on the JIT as before
+-        aot_owner(ctx).aot_call_import(addr);
+-        return;
+-    }
+-    aot_owner(ctx).aot_call_guest(addr);
+-}
+-
+-void call_import(armrecomp::GuestContext *ctx, uint32_t stub_addr) {
+-    aot_owner(ctx).aot_call_import(stub_addr);
+-}
+-
+-void escape(armrecomp::GuestContext *, uint32_t pc) {
+-    aot_count_escape(pc);
+-    throw AotEscape{ pc };
+-}
+-
+-void unsupported(armrecomp::GuestContext *, uint32_t pc) {
+-    LOG_ERROR("AOT: no native code for the instruction at {}", log_hex(pc));
+-    aot_count_escape(pc);
+-    throw AotEscape{ pc };
+-}
+-
+-} // namespace aot_hooks
+ 
+ int DynarmicCPU::step() {
+     parent->svc_called = false;
+-- 
+2.56.0.windows.2
+

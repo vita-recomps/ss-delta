@@ -10,14 +10,14 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 
 ## Status
 
-Phases 0 to 4 are done, and Phase 5 is nearly done. Our Vita3K fork runs
-the game on Vulkan on this machine's AMD GPU, which upstream can't, and
-renders it correctly at 30 fps. The recompiler (`recomp/`) turns every
-function of the eboot and of the bundled libc, libfios2 and libult into
-C++, NEON and ARM mode included. The fork loads them as DLLs (`SSD_AOT`).
-In title, field, arena and quest runs, 99.9% of the guest instructions run
-natively and none run on the JIT inside those modules. The JIT is left
-with firmware code. See the [plan](docs/03-plan.md).
+Phases 0 to 6 are done. `ss-delta.exe` is a single-game executable built
+from our Vita3K fork. It has no Qt interface; its settings, keyboard and
+gamepad bindings are in `ss-delta.ini`, and it runs offline. It runs the game
+on native code alone: the game's modules and the firmware modules it loads
+are recompiled to C++, and a build without the dynarmic JIT plays at 30 fps.
+`tools/install-game.ps1` turns the player's own dump and firmware into a
+playable folder, generating and compiling everything locally. Next is
+Phase 7, rendering correctness. See the [plan](docs/03-plan.md).
 
 ## Documentation
 

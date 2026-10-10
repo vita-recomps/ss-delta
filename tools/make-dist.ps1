@@ -1,15 +1,17 @@
 # Lay out a self-contained ss-delta folder: dist\ss-delta-<commit>\ with ss-delta.exe, the DLLs it
 # needs, its data, the recompiled modules (built locally from the player's own dump, never shared)
 # and a commented ss-delta.ini. Nothing here is committed (dist/ is ignored).
-#   .\tools\make-dist.ps1 [-VitaFs C:\path\to\fs] [-Name ss-delta-test] [-NoRecompiled]
+#   .\tools\make-dist.ps1 [-VitaFs C:\path\to\fs] [-Name ss-delta-test] [-RecompiledDir <dir>] [-NoRecompiled]
 param(
     [string]$VitaFs = '',
     [string]$Name = '',
-    [switch]$NoRecompiled
+    [string]$RecompiledDir = '',
+    [switch]$NoRecompiled,
+    [switch]$NoJit  # ss-delta.exe from the build without dynarmic (build-vita3k.ps1 -NoJit)
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$bin = Join-Path $root 'build\vita3k\bin\RelWithDebInfo'
+$bin = Join-Path $root $(if ($NoJit) { 'build\vita3k-nojit\bin\RelWithDebInfo' } else { 'build\vita3k\bin\RelWithDebInfo' })
 if (-not (Test-Path "$bin\ss-delta.exe")) { throw "build ss-delta.exe first (tools\build-vita3k.ps1)" }
 if (-not $Name) { $Name = 'ss-delta-' + (git -C $root rev-parse --short HEAD).Trim() }
 $out = Join-Path $root "dist\$Name"
@@ -29,8 +31,9 @@ foreach ($dir in 'data', 'shaders-builtin', 'icons') {
 
 # the recompiled modules
 if (-not $NoRecompiled) {
-    $mods = Get-ChildItem (Join-Path $root 'build\recomp') -Filter 'ssd_aot_*.dll'
-    if (-not $mods) { Write-Warning 'no ssd_aot_*.dll in build\recomp: everything will run on the JIT' }
+    if (-not $RecompiledDir) { $RecompiledDir = Join-Path $root 'build\recomp' }
+    $mods = Get-ChildItem $RecompiledDir -Filter 'ssd_aot_*.dll'
+    if (-not $mods) { Write-Warning "no ssd_aot_*.dll in ${RecompiledDir}: everything will run on the JIT" }
     $mods | Copy-Item -Destination $out -Force
 }
 

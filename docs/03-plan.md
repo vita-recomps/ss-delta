@@ -319,7 +319,7 @@ Design: [D7](decisions.md). Details and numbers:
 **Exit:** a full quest with **zero dynarmic entries** in `efg`, libc, fios2
 and ult, and a clean differential log. **Met** (2026-10-10).
 
-## Phase 6 — Standalone runtime (L) ◐
+## Phase 6 — Standalone runtime (L) ☑
 
 * ☑ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
   config, and its own `ss-delta.ini` (like `decimation.ini`).
@@ -374,16 +374,30 @@ and ult, and a clean differential log. **Met** (2026-10-10).
   is the default in `ss-delta.exe`; `[recompiled] jit = true` brings the
   JIT back. Title, dialogs, hub, book menu, field and a quest: **0 JIT
   instructions**, 29.6 fps.
-* ☐ **Install flow.**
-  1. Take the user's NoNpDrm zip/folder.
-  2. Decrypt PFS + SELF.
-  3. Verify hashes ([hashes](hashes.md)).
-  4. Generate and compile.
-  5. Lay out `app0:` on disk.
-* ☐ dynarmic stays as an optional build flag for debugging only. It is already unused at run time in `ss-delta.exe`; the option to build without it is still to add (dynarmic is used only inside the cpu library).
+* ☑ **Install flow**: `tools/install-game.ps1 -Dump <zip|folder> -Firmware <PUPs>`.
+  It needs MSVC and Python with capstone, because the code is generated
+  locally (D2).
+  1. Takes the user's NoNpDrm zip or folder, plus the firmware PUPs.
+  2. Decrypts with Vita3K's own installers (`ss-delta.exe --install`,
+     `--install-firmware`) and its SELF loader. The game runs for 45 s with
+     `--dump-elfs`, and the modules come out as decrypted, relocated ELFs,
+     so no external decryptor is needed.
+  3. Verifies `eboot.bin` against the 1.30 hash ([hashes](hashes.md)).
+  4. Generates the nine modules and compiles them. The code hashes are the
+     same as the ones from the hand-made ELFs.
+  5. Lays out `dist/<name>/` with the game in its own `fs/`.
+  From the user's zip, the run took about 25 minutes, most of it compiling.
+* ☑ dynarmic stays as an optional build flag for debugging only:
+  `VITA3K_DYNARMIC=OFF` (`build-vita3k.ps1 -NoJit`, fork patch 0026) builds
+  without it; every thread then runs on NativeCPU.
 
 **Exit:** `ss-delta.exe` boots from the user's own dump to a quest, with no
-Vita3K GUI and no dynarmic.
+Vita3K GUI and no dynarmic. **Met** (2026-10-11): a fresh
+`install-game.ps1` folder from the user's zip, with the exe built without
+dynarmic (`make-dist.ps1 -NoJit`), boots through Stage Select into the
+first quest. 0 JIT instructions, 30 fps. Open items: the remaining offline
+stubs (NP, ad hoc and others are Vita3K's HLE stubs) and 17 font functions
+that use NEON forms not translated yet.
 
 ## Phase 7 — Rendering correctness (L) ☐
 

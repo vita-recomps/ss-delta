@@ -1,16 +1,18 @@
 # Configures and builds our Vita3K fork (third_party/vita3k) with MSVC + Ninja
 # Multi-Config into build/vita3k. See docs/decisions.md D5.
-#   . .\tools\devshell.ps1; .\tools\build-vita3k.ps1 [-Config Debug|RelWithDebInfo|Release] [-Jobs N] [-Reconfigure]
-# The executable lands in build\vita3k\bin\<Config>\Vita3K.exe.
+#   . .\tools\devshell.ps1; .\tools\build-vita3k.ps1 [-Config Debug|RelWithDebInfo|Release] [-Jobs N] [-Reconfigure] [-NoJit]
+# The executable lands in build\vita3k\bin\<Config>\Vita3K.exe. -NoJit builds without dynarmic
+# (VITA3K_DYNARMIC=OFF: recompiled code only, docs/decisions.md D11) into build\vita3k-nojit.
 param(
   [ValidateSet('Debug', 'RelWithDebInfo', 'Release')][string]$Config = 'RelWithDebInfo',
   [int]$Jobs = 0,
-  [switch]$Reconfigure
+  [switch]$Reconfigure,
+  [switch]$NoJit
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $src = Join-Path $root 'third_party\vita3k'
-$build = Join-Path $root 'build\vita3k'
+$build = Join-Path $root $(if ($NoJit) { 'build\vita3k-nojit' } else { 'build\vita3k' })
 if (-not $env:VCToolsVersion) { throw 'run . .\tools\devshell.ps1 first' }
 if (-not (Test-Path "$src\external\dynarmic\CMakeLists.txt")) { throw "submodules missing under $src" }
 
@@ -28,8 +30,9 @@ if ($Reconfigure -or -not (Test-Path $cache) -or -not (Test-Path (Join-Path $bui
   $savedNoCwd = $env:NoDefaultCurrentDirectoryInExePath
   $env:NoDefaultCurrentDirectoryInExePath = $null
   try {
+    $jitArg = if ($NoJit) { '-DVITA3K_DYNARMIC=OFF' } else { '-DVITA3K_DYNARMIC=ON' }
     cmake -S $src -B $build -G 'Ninja Multi-Config' `
-      -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl
+      -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl $jitArg
   } finally {
     $env:NoDefaultCurrentDirectoryInExePath = $savedNoCwd
   }

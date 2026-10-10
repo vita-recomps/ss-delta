@@ -385,5 +385,8 @@ instruction. Its main job was driving threads into native code.
 * Seventeen font functions (`libSceFt2`, `libpvf`) still use NEON forms
   the translator lacks. None of them has run in any session so far. If one
   ever does, `NativeCPU` names the address in the log.
-* Building without dynarmic is now a build option to add (dynarmic is used
-  only inside the cpu library). Until then it stays linked, unused.
+* `VITA3K_DYNARMIC=OFF` builds without dynarmic (fork patch 0026). The
+  normal build keeps it as the `jit = true` fallback and for the
+  differential checks.
+* The ELF dumps also replace an external SELF decryptor. The install flow
+  (`tools/install-game.ps1`) gets every module from them.

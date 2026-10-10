@@ -61,7 +61,11 @@ conventions.
   `python -I tools/v3kdrive.py <bin dir> start`, then `run`/`close` as for
   Vita3K. `tools/make-dist.ps1 [-VitaFs <fs>]` lays out a self-contained
   folder in `dist/` (ignored; it holds the game-derived `ssd_aot_*.dll`).
-- Firmware modules (D11): run `ss-delta.exe` once with `SSD_DUMP_ELFS=1`, copy
+- `tools/install-game.ps1 -Dump <zip> -Firmware <PUPs> [-Name x]` does the whole
+  thing from a dump into `dist/<name>/` (work files in `build/install-<name>/`);
+  `make-dist.ps1 -NoJit` takes the exe built without dynarmic
+  (`build-vita3k.ps1 -NoJit` → `build/vita3k-nojit`).
+- Firmware modules by hand (D11): run `ss-delta.exe` once with `SSD_DUMP_ELFS=1`, copy
   `ss-delta/elfdumps/PCSA00152/*_{sysmodule,libSceFt2,libpvf,libscemp4,libsceavplayer}.elf`
   to `extracted/elf/firmware/<name>.elf`, then
   `python -I recomp/recompile.py extracted/elf/firmware/<name>.elf generated/fw_<name>`
