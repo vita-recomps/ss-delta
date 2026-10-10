@@ -305,8 +305,10 @@ Design: [D7](decisions.md). Details and numbers:
   entries, `BootSequence Quest Select`, buttons through the fork's input
   pipe). A sweep of 20 quests (every 30th entry, 75 s each, `SSD_AOT_DIFF=64`)
   found **0 mismatches** in 83,656 checked calls and **0 JIT instructions
-  inside the four modules**, at 29.5 fps
-  ([05-recompiler](05-recompiler.md#coverage-130)).
+  inside the four modules**, at 29.5 fps. A call-level check (every direct
+  call sampled, `RECOMP_BISECT` DLLs) then covered 219,000 calls in title,
+  field and 5 quests. It found missing FPSCR.DZC in native code (fixed) and
+  one race ([05-recompiler](05-recompiler.md#coverage-130)).
 * ☐ A full quest played to the end. It needs a player: scripted button
   presses don't win fights.
 

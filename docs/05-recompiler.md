@@ -177,6 +177,30 @@ with `SSD_AOT_DIFF=64`. All 20 ran at 29.5 fps, with 83,656 calls checked,
 sampled entries are callbacks that make HLE calls (about 470,000 skipped),
 because the JIT now enters native code rarely.
 
+**Call-level differential.** To check native code where it actually runs,
+differential mode also samples native→native calls (`aot_call_native`,
+patch 0013). A `RECOMP_BISECT` build (`build/recomp-bisect`, configured with
+`-DRECOMP_BISECT=ON -DRECOMP_TESTS=OFF`) routes every direct call through
+`call_indirect`, so every call can be sampled. At `SSD_AOT_DIFF=2000`
+(18–25 fps):
+
+| Run | calls checked | mismatching | shadow instructions |
+|---|---|---|---|
+| title, 60 s | 11,907 | 2, then 0 after the DZC fix | 4.0 G |
+| `ELDER DEFAULT MAP`, 90 s | 37,669 | 0 | 5.6 G |
+| quests 0, 120, 270, 330, 450 (75 s each) | 169,876 | 1 (race) | — |
+
+* The first runs found native code missing FPSCR.DZC. libc raises
+  exceptions from the cumulative flags after a division (`80347660` is
+  `feraiseexcept`), so the saved environment differed. Native `vdiv`,
+  `vrecpe` and `vrsqrte` now set DZC as ARM's pseudocode does. The other
+  cumulative flags are still not modelled. The unit tests don't compare
+  them, because dynarmic derives them from the host's MXCSR.
+* The remaining mismatch, libfios2 `80386580`, returns a word it loads
+  from an operation object without changing it. The I/O thread changed
+  that word between the two runs: a race, not a translation error
+  (**hypothesis**, by inspection).
+
 Before resume points, a fiber that resumed after an escape finished its
 frames on the JIT. Worker loops never return, so they stayed there: 13 M
 JIT instructions a minute on the title screen, against 0.8 M with resume

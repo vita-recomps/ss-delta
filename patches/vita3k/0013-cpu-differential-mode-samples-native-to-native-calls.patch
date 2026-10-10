@@ -1,0 +1,126 @@
+From 50bc590f243944d3cb9a33052a87994535f5cfed Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 17:52:00 +0200
+Subject: [PATCH] cpu: differential mode samples native-to-native calls; count
+ JIT runs inside native modules
+
+- call_indirect's native targets go through aot_call_native, which runs
+  the shadow JIT first on every Nth call. With a RECOMP_BISECT module
+  every direct call is one, so the whole call tree is checked, not only
+  the functions the JIT enters.
+- The counters report the JIT instructions whose run started inside a
+  loaded module's code ("JIT inside native modules"), with SSD_AOT_COUNT.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/include/cpu/impl/dynarmic_cpu.h |  3 +++
+ vita3k/cpu/src/aot.cpp                     | 23 ++++++++++++++++++++++
+ vita3k/cpu/src/dynarmic_cpu.cpp            | 22 ++++++++++++++++++++-
+ 3 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+index 501af07b..bedda2c0 100644
+--- a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
++++ b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+@@ -19,6 +19,7 @@
+ 
+ #include <dynarmic/interface/A32/a32.h>
+ 
++#include <cpu/aot.h>
+ #include <cpu/aot_abi.h>
+ #include <cpu/functions.h>
+ #include <cpu/impl/interface.h>
+@@ -117,4 +118,6 @@ public:
+     // native code calling guest code the JIT runs, and an import stub
+     void aot_call_guest(uint32_t target);
+     void aot_call_import(uint32_t stub);
++    // native code calling native code through call_indirect, sampled by differential mode
++    void aot_call_native(uint32_t addr, AotFn fn);
+ };
+diff --git a/vita3k/cpu/src/aot.cpp b/vita3k/cpu/src/aot.cpp
+index e002bf2c..7578c004 100644
+--- a/vita3k/cpu/src/aot.cpp
++++ b/vita3k/cpu/src/aot.cpp
+@@ -52,6 +52,7 @@ struct LoadedModule {
+     armrecomp::AotInitFn init = nullptr;
+     const armrecomp::AotModule *module = nullptr;
+     uint32_t lo = 0, hi = 0; // [first entry, last entry]
++    uint32_t end = 0; // end of the last function's code
+     std::atomic<Verified> verified{ Verified::unknown };
+     std::mutex verify_mutex;
+ };
+@@ -246,6 +247,7 @@ void aot_init(MemState &mem, Address sentinel) {
+             LOG_INFO("AOT: SSD_AOT_RANGE leaves {} of {} functions native", registered, mod.function_count);
+         m->lo = mod.function_count ? mod.functions[0].addr & ~1u : 0;
+         m->hi = mod.function_count ? mod.functions[mod.function_count - 1].addr & ~1u : 0;
++        m->end = mod.function_count ? m->hi + mod.functions[mod.function_count - 1].size : 0;
+         LOG_INFO("AOT: {} ({} functions, {:08x}-{:08x}) from {}", mod.name, mod.function_count, m->lo, m->hi, m->path);
+     }
+     registry.enabled = !registry.functions.empty();
+@@ -417,5 +419,26 @@ std::string aot_counters_text() {
+         for (size_t i = 0; i < std::min<size_t>(heavy.size(), 12); i++)
+             out += fmt::format("{}{:08x} {}M", i ? ", " : (map == &profile_called ? "; JIT called from native: " : "; JIT runs from: "), heavy[i].second, heavy[i].first / 1000000);
+     }
++    // JIT runs that start in a loaded module's code: the code the module does not cover natively
++    std::map<uint32_t, uint64_t> inside;
++    for (const auto *map : { &profile_called, &profile_top })
++        for (const auto &[key, n] : *map)
++            for (const auto &m : registry.modules)
++                if (m->module && m->lo <= key && key < m->end)
++                    inside[key] += n;
++    if (registry.count_jit_insns) {
++        uint64_t total = 0;
++        for (const auto &[key, n] : inside)
++            total += n;
++        out += fmt::format("; JIT inside native modules: {} instructions from {} addresses", total, inside.size());
++        size_t i = 0;
++        for (const auto &[key, n] : inside) {
++            if (i++ == 16)
++                break;
++            out += fmt::format("{}{:08x} {}", i == 1 ? " (" : ", ", key, n);
++        }
++        if (!inside.empty())
++            out += ")";
++    }
+     return out;
+ }
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 0f276d19..f5b70048 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -850,11 +850,31 @@ void DynarmicCPU::aot_call_import(uint32_t stub) {
+     guest.r[15] = ret;
+ }
+ 
++// Differential mode also samples calls from native code to native code. A module built with
++// RECOMP_BISECT makes every direct call one, so the whole call tree gets checked, not only the
++// functions the JIT enters.
++void DynarmicCPU::aot_call_native(uint32_t addr, AotFn fn) {
++    const uint64_t diff_interval = aot_diff_interval();
++    if (!diff_interval || ++diff_counter % diff_interval != 0) {
++        fn(&guest);
++        return;
++    }
++    // the JIT is stopped inside a boundary, which resets it afterwards: start the shadow from
++    // the native context
++    aot_sync_from_guest();
++    set_pc(addr);
++    AotShadowResult shadow_result;
++    const bool diff = aot_diff_shadow(addr & ~1u, shadow_result);
++    fn(&guest);
++    if (diff)
++        aot_diff_compare(addr & ~1u, shadow_result);
++}
++
+ namespace aot_hooks {
+ 
+ void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr) {
+     if (const AotFn fn = aot_lookup(addr)) {
+-        fn(ctx);
++        aot_owner(ctx).aot_call_native(addr, fn);
+         return;
+     }
+     aot_owner(ctx).aot_call_guest(addr);
+-- 
+2.56.0.windows.2
+
