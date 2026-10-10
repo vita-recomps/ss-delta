@@ -725,24 +725,36 @@ foreground (`menu.png` in the repository root, not committed).
   it stays exactly on them while they move (the user, 2026-10-10).
 * So the ghost is the game's bloom, drawn a frame or more late. The
   butterfly on the title screen shows it too (the user).
-* **Cause (fixed, fork patch 0018):** the game builds its bloom in two
-  atlas render targets of small tiles (`618680c0` 256×512 and `618e80e0`
-  512×384 in the menu) and composites the last tiles over the scene.
-  Vita3K's Vulkan surface cache accepted a texture inside a surface only
-  if `address + stride × height` stayed inside it. For a tile in the
-  right-hand part of an atlas that overshoots by the tile's x offset. So
-  the final tiles (`618c82c0`, `619684e0`) were read from guest memory,
-  which holds the atlas as of its last sync, an older frame. The check now
-  ends a linear texture at its last row's last pixel.
-* Found with a temporary renderer trace of every render target and
-  texture lookup. The atlas passes themselves were already correct: their
-  draws use a full-target scissor, so Vita3K restarts the render pass per
-  draw.
-* Verified on the title: frames without the fix show a blurred copy of the
-  butterfly where it was a moment before; with it the glow stays on the
-  butterfly. The field is unchanged (29.5 fps).
-* OpenGL has a similar check in its own surface cache; not changed,
-  because Vulkan is our renderer (D4).
+* **Cause (fixed, fork patch 0019):** the game builds its depth of field
+  and bloom as chains of tiles in two atlas render targets (`618e80e0`
+  512×384 and `618680c0` 256×512 in the menu). Each draw reads the tile
+  the previous draw wrote. The draws use a full-target scissor, so Vita3K
+  gives each its own render pass and, because this GPU path runs without
+  texture viewports, its own recording. A tile read from the surface being
+  rendered is copied in the recording's prerender commands, which run
+  before the draws already recorded. The split came at the draw, after
+  the draw's textures were synced, so the copy landed in the previous
+  draw's recording and held the tile as it was a frame earlier. The lag
+  added up along the chain: the last tile, blended over the scene, was
+  five frames old. The split now happens at the first texture sync after
+  a draw.
+* **Found with:**
+  * a temporary per-pass dump (the colour attachment copied after every
+    render pass of chosen frames, saved as PNGs);
+  * normalised correlation of each tile against its source tile in the
+    current and the previous frame. Before: t10 matched the previous
+    frame's t00 (0.95 against 0.85). After: the current one (0.94 against
+    0.73).
+* Ruled out on the way: surface sync, depth stores, and the render pass
+  dependencies. Forcing a depth load broke rendering, because the game
+  relies on depth starting cleared.
+* Patch 0018 (a texture tile in the right part of a surface failed the
+  surface cache's range check and was read from memory) was a real bug
+  on the same path, but not the cause of the ghost. The user still saw it
+  after 0018.
+* Verified on the Librom transition in the menu (scripted route): before,
+  a large blurred copy of the book trails it; after, none. The field is
+  unchanged (29.5 fps).
 
 ## Not measured yet
 
