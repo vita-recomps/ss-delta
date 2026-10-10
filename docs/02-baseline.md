@@ -645,6 +645,39 @@ For Vulkan rendering comparisons on this machine, our fork is now the
 reference. Plus on Vulkan needs the old driver or another GPU (the RTX 4090
 runs).
 
+
+## Fog and smoke differ from hardware (2026-10-10)
+
+The owner compared title screens from Vita hardware, Plus 1.2 on Vulkan
+(old AMD driver restored) and our fork on Vulkan:
+
+* **Haze.** Hardware and Plus draw a bright grey-green haze over the whole
+  title scene, and green smoke spreading from the logo. Ours is dark and
+  high-contrast, with the haze almost gone and the smoke reduced to a glow
+  around the logo.
+* **In motion** (observed by the owner): our fog, dust and smoke flicker,
+  and rectangles clip through them.
+  * This shows on the title, in `ELDER DEFAULT MAP` (dust clouds) and in
+    HarpyBattle (background fog).
+* **Butterfly.** Its wings are patterned on hardware and on ours, but plain
+  on Plus.
+
+The JIT-only fork looks the same as the native build, so this is a renderer
+issue, not a recompiler one. Our OpenGL path draws no background scene at
+all, so it can't serve as a comparison.
+
+**Hypothesis:** these effects are soft particles that sample the scene's
+depth buffer. Plus has two Delta-specific depth fixes on its
+`all-enhancements` branch:
+
+* `98a65bff` "Fixes for depth in SSDelta": `gxm/textures.cpp`,
+  `texture/cache.cpp`, `vulkan/surface_cache.cpp`, `sync_state.cpp`;
+  76 lines;
+* `d248beee` "Refix Sacrifice Soul Delta outlines": `surface_cache`;
+  19 lines.
+
+Both are candidates to port (the fork's `plus` remote now has the branch).
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs
