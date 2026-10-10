@@ -10,11 +10,13 @@ own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
 
 ## Status
 
-Phases 0 and 1 are done. Our Vita3K fork runs the game on Vulkan on this
+Phases 0 to 3 are done. Our Vita3K fork runs the game on Vulkan on this
 machine's AMD GPU, which upstream can't, and renders it correctly at 30 fps.
-Automated runs can press buttons without taking focus. Phase 2 (static
-analysis) is done apart from an optional Ghidra project: every function in
-the eboot and the bundled libc, libfios2 and libult is inventoried. See the [plan](docs/03-plan.md).
+Every function in the eboot and the bundled libc, libfios2 and libult is
+inventoried. The recompiler (`recomp/`) turns every non-NEON Thumb function
+into C++ that compiles in under 5 minutes and matches dynarmic on every
+instruction and function test. Next is Phase 4: running that code inside
+the fork. See the [plan](docs/03-plan.md).
 
 ## Documentation
 
@@ -24,6 +26,7 @@ the eboot and the bundled libc, libfios2 and libult is inventoried. See the [pla
 | [02-baseline](docs/02-baseline.md) | how the game behaves in Vita3K today, and how to re-run the baseline |
 | [03-plan](docs/03-plan.md) | phases, exit criteria, risks |
 | [04-inventory](docs/04-inventory.md) | the code inventory: functions, jump tables, indirect branches, exceptions, frame pacing and render-target sites |
+| [05-recompiler](docs/05-recompiler.md) | the recompiler: generated code, coverage, the dynarmic comparison tests, build size and time |
 | [decisions](docs/decisions.md) | decision log |
 | [hashes](docs/hashes.md) | input hashes |
 
@@ -37,6 +40,8 @@ the eboot and the bundled libc, libfios2 and libult is inventoried. See the [pla
 | `tools/imix.py` | Capstone instruction-mix sweep over every exidx function |
 | `tools/sfo.py` | print `param.sfo` fields |
 | `tools/v3kdrive.py` | drive the portable Vita3K for baseline runs: launch, `BootSequence`, FPS sampling, background screenshots |
+| `recomp/recompile.py` | recompile a module to C++ in `generated/<module>/` (see docs/05-recompiler) |
+| `recomp/run-tests.ps1` | regenerate, build and run the dynarmic comparison tests for each module |
 | `tools/devshell.ps1` | dot-source to load MSVC x64 and point CMake at Qt 6.11.0 |
 | `tools/build-vita3k.ps1` | configure and build our Vita3K fork (`third_party/vita3k`) into `build/vita3k` |
 | `tools/package4090.ps1` | build `dist/ss-delta-vita3k-test` (both Vita3K builds, the installed game, `run-matrix.bat`/`play.bat` from `tools/pkg4090/`) for testing on another PC |

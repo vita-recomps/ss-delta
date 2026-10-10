@@ -2,7 +2,7 @@
 
 Irreversible or expensive choices, newest last.
 
-## D1 — Hybrid: AOT-recompiled code inside a Vita3K fork, dynarmic fallback (proposed, 2026-10-09)
+## D1 — Hybrid: AOT-recompiled code inside a Vita3K fork, dynarmic fallback (accepted, 2026-10-10)
 
 **Context:** [01-research](01-research.md#approach-options).
 
@@ -26,7 +26,11 @@ Irreversible or expensive choices, newest last.
 * The runtime is GPL-2.0-or-later (Vita3K).
 * Thread, callback and HLE integration follow Vita3K's model until Phase 6.
 
-**Status:** proposed. Confirm before Phase 3 starts.
+**Status:** accepted by the owner on 2026-10-10, after Phase 2. The
+inventory ([04-inventory](04-inventory.md)) supports the choice: the
+function list is complete, game code has no exception landing pads, and the
+dynamic indirect calls (26 k) and the few unexplained data pointers are
+exactly what the dynarmic fallback is for.
 
 ## D2 — Nothing derived from the dump or firmware is committed (accepted, 2026-10-09)
 
@@ -141,3 +145,37 @@ directly, with the Plus diff as a hint rather than a ready-made fix.
 
 **Pinned:** upstream `b75d5e62` (2026-10-09, "appimage: Correctly copy data
 folder (#4216)").
+
+## D6 — The recompiler is a Python generator; runtime and tests are C++ (accepted, 2026-10-10)
+
+**Context:** Phase 3. Decimation used a C++ framework (Yakumo's psprecomp)
+because one existed for the PSP. Nothing comparable exists for ARMv7.
+`tools/inventory.py` already decodes every function in Python (Capstone,
+recursive descent, jump tables, IT blocks).
+
+**Decision:**
+
+* `recomp/` holds our recompiler:
+  * `recomp/armrecomp/` is a Python package that turns the inventory's
+    per-function decode into C++ in `generated/<module>/`;
+  * `recomp/runtime/` holds the C++ headers the generated code includes
+    (guest context, memory access, flag helpers, dispatch hooks);
+  * `recomp/tests/` holds a C++ harness that runs each instruction, and a
+    sample of whole leaf functions, through the generated code and through
+    dynarmic (from the fork's `external/dynarmic`) and compares the results.
+* The interface of the generated code is `void f_<addr>(GuestContext *)`
+  plus four hooks (`call_indirect`, `call_import`, `escape`,
+  `unsupported`).
+  * A function returns by setting `r15` to its return address.
+  * Every call site checks `r15` and escapes to the fallback CPU when the
+    callee returned somewhere else.
+  * See [05-recompiler](05-recompiler.md).
+* Speed of the generator doesn't matter. It runs once per build and reads
+  only `extracted/elf/`.
+
+**Consequences:**
+
+* The generator and inventory share one decoder. A decode fix applies to
+  both.
+* Generated code depends only on `recomp/runtime/`. Phase 4 plugs it into
+  Vita3K through that interface.

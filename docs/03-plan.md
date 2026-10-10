@@ -171,44 +171,57 @@ New for the recompiler:
   need entry support.
 * The exidx mode bit can be wrong (libc `memcpy`).
 
-## Phase 3 — Recompiler v0: integer + VFP scalar (L) ☐
+## Phase 3 — Recompiler v0: integer + VFP scalar (L) ☑
 
-The tool lives in `third_party/` or `recomp/` (our code). It never ships game
-data; it reads `extracted/elf/` and writes `generated/`.
+The tool is ours, in `recomp/` ([D6](decisions.md)). It never ships game
+data; it reads `extracted/elf/` and writes `generated/`. Details and
+numbers: [05-recompiler](05-recompiler.md).
 
-* ☐ **Decoder.** Capstone for Thumb-2/ARM is fine offline, since speed is
-  irrelevant. Keep a thin layer of our own, so that operand semantics
-  (shifts, writeback, `IT` state) are explicit.
-* ☐ **Guest context.**
+* ☑ **Decoder.** Capstone with details, on top of the inventory's recursive
+  descent. `recomp/armrecomp/semantics.py` makes operand semantics
+  (shifter carry, writeback, `IT` state, S from the mnemonic) explicit.
+* ☑ **Guest context** (`recomp/runtime/armrecomp.h`).
   * `r0–r15`;
   * NZCV/Q/GE flags;
-  * `d0–d31` as a union with `s`/`q` views;
+  * `d0–d31` as a union with `s` and float/double views. The `q` view waits
+    for NEON (Phase 5);
   * FPSCR;
   * TPIDRURO (TLS);
   * exclusive monitor state.
-* ☐ **Emitter.** One C++ function per guest function, with one statement
+* ☑ **Emitter.** One C++ function per guest function, with one statement
   group per instruction.
-  * Write flags only where a later instruction reads them, using a per-block
-    liveness pass. Otherwise expect huge sources.
+  * A liveness pass over the whole function drops flag writes nobody reads
+    (1.7 M in the eboot).
   * Memory is accessed as `base + (uint32_t)addr`, matching Vita3K's
     4 GiB reservation.
-* ☐ **Control flow:**
-  * `bl`/`blx #imm` become direct calls;
-  * a call to an import stub becomes the HLE thunk;
-  * `tbb`/`tbh` become `switch`;
-  * `IT` becomes `if`;
-  * `blx reg` / non-matching `pop {pc}` go through `LOOKUP_FUNC(addr)`;
-  * `ldrex`/`strex` become host CAS.
-* ☐ Functions containing NEON or ARM-mode code are marked "dynarmic" in v0.
-* ☐ **Per-instruction test suite.** Random inputs, our generated code
-  vs. dynarmic executing the same instruction (dynarmic is 0BSD and
-  embeddable standalone).
-* ☐ Measure the generated size and the compile time / memory per job for the
-  whole eboot. Split into buckets of about 64 KB of guest code each, as in
-  decimation.
+* ◐ **Control flow:**
+  * ☑ `bl`/`blx #imm` become direct calls, checked against the return
+    protocol;
+  * ☑ a call to an import stub becomes `call_import` (the HLE thunk);
+  * ☑ `tbb`/`tbh` become `switch`;
+  * ☑ `IT` becomes `if`;
+  * ☑ `blx reg` goes through `call_indirect`, and a return to an unexpected
+    address goes through `escape`. Phase 4 implements both hooks;
+  * ☐ `ldrex`/`strex` become host CAS. They have single-thread semantics in
+    v0; the CAS moves to Phase 4, with the threads.
+* ☑ Functions containing NEON or ARM-mode code are left to dynarmic in v0:
+  5,577 NEON and 28 ARM-mode functions in the eboot.
+* ☑ **Per-instruction test suite** (`recomp/run-tests.ps1`). Random inputs,
+  our generated code vs. dynarmic executing the same instruction.
+  * Up to 20 encodings of every form, 256 states each: 11,366 tests over
+    the four modules, **0 failing**.
+  * Plus 468 whole leaf functions with control flow, 64 states each:
+    **0 failing**.
+* ☑ Size and compile time measured for the whole eboot.
+  * 91 buckets of about 64 KB of guest code each, 312 MB of C++.
+  * A clean build of the four modules takes 4.8 min with 4 jobs; the worst
+    bucket peaks at 435 MB.
+  * `gen_eboot.lib` is 82 MB.
 
-**Exit:** C++ for every non-NEON function compiles; the instruction suite
-passes; size and compile time are recorded.
+**Exit:** met (2026-10-10). C++ for every non-NEON function compiles,
+there are 0 unsupported instructions in all four modules, and both test
+suites pass. Size and compile time are in
+[05-recompiler](05-recompiler.md#build-130-eboot).
 
 ## Phase 4 — Hybrid runtime in the Vita3K fork (L) ☐
 
@@ -222,6 +235,8 @@ passes; size and compile time are recorded.
   copy at the boundary.
 * ☐ **Threads.** Each Vita3K guest thread (host thread) owns a guest context
   that native code and dynarmic both see.
+  * `ldrex`/`strex` in native code become a host compare-and-swap (they
+    have single-thread semantics in v0).
   * Callbacks (`run_callback`, the GXM display queue) enter native code when
     the target is recompiled.
 * ☐ **Differential mode.**
@@ -240,6 +255,9 @@ passes; size and compile time are recorded.
 ## Phase 5 — NEON, ARM mode and the bundled modules (L) ☐
 
 * ☐ **NEON layer** on SIMDe or hand-written SSE4.1/AVX2.
+  * Start with `vmov.i q, #imm` and `vdup q, d`. They are the only NEON
+    forms in 2,039 of the eboot's 5,577 NEON functions
+    ([05-recompiler](05-recompiler.md#neon-input-to-phase-5)).
   * Must match ARM semantics: flush-to-zero and default NaN where FPSCR says
     so, saturation, and `vrecpe`/`vrsqrte` estimate tables bit-exact.
   * Unit tests against dynarmic, per op.
