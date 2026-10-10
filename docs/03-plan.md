@@ -284,7 +284,7 @@ Design: [D7](decisions.md). Details and numbers:
   idle. Measured: 11,181 frames and 116,609 checked calls, 0 mismatches.
   22,387 calls were skipped (HLE calls 20,372; atomics 2,015).
 
-## Phase 5 — NEON, ARM mode and the bundled modules (L) ☐
+## Phase 5 — NEON, ARM mode and the bundled modules (L) ☑
 
 * ☑ **NEON layer**: portable C++ templates (`recomp/runtime/neon.h`), not
   SIMDe or intrinsics. All 97 eboot forms and the 6 libc forms; 0 failing in
@@ -309,12 +309,15 @@ Design: [D7](decisions.md). Details and numbers:
   call sampled, `RECOMP_BISECT` DLLs) then covered 219,000 calls in title,
   field and 5 quests. It found missing FPSCR.DZC in native code (fixed) and
   one race ([05-recompiler](05-recompiler.md#coverage-130)).
-* ☐ A full quest played to the end. It needs a player: scripted button
-  presses don't win fights.
+* ☑ A full quest played to the end (the user, 2026-10-10, `ss-delta.exe`).
+  The run covered a new game, the intro, the first story quest and the
+  main menu: 157 G guest instructions native, 0 JIT instructions inside
+  the four modules, 416,000 fiber switches resumed natively. There were no
+  crashes. One rendering issue: a ghost book in the main menu
+  ([02-baseline](02-baseline.md)).
 
 **Exit:** a full quest with **zero dynarmic entries** in `efg`, libc, fios2
-and ult, and a clean differential log. Met for every quest start in the
-sweep; the full playthrough is still open.
+and ult, and a clean differential log. **Met** (2026-10-10).
 
 ## Phase 6 — Standalone runtime (L) ◐
 
