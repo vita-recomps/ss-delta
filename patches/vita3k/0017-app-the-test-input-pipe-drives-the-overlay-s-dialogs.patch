@@ -1,0 +1,34 @@
+From 5d867adeb1141b428847a3b83729c10aa86c3199 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 21:10:58 +0200
+Subject: [PATCH] app: the test input pipe drives the overlay's dialogs too
+
+poll_overlay_input read only the keyboard and gamepads, so VITA3K_INPUT_PIPE
+buttons never reached the common dialogs. The save list now responds; its
+load confirmation still ignores pipe input (not investigated).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/app/src/app_init.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/vita3k/app/src/app_init.cpp b/vita3k/app/src/app_init.cpp
+index 6aecd897..3f092cef 100644
+--- a/vita3k/app/src/app_init.cpp
++++ b/vita3k/app/src/app_init.cpp
+@@ -99,6 +99,12 @@ static overlay::button_states poll_overlay_input(EmuEnvState &emuenv) {
+     axes[2] += kb.axes[2];
+     axes[3] += kb.axes[3];
+ 
++    // the test driver's buttons (VITA3K_INPUT_PIPE) drive the dialogs too
++    const auto &injected = emuenv.ctrl.injected_state;
++    buttons |= injected.buttons_ext;
++    for (int i = 0; i < 4; i++)
++        axes[i] += injected.axes[i];
++
+     for (const auto &[_, controller] : emuenv.ctrl.controllers) {
+         SDL_Gamepad *gp = controller.controller.get();
+         for (const auto &binding : get_controller_bindings_ext(emuenv)) {
+-- 
+2.56.0.windows.2
+

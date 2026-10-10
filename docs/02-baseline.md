@@ -710,6 +710,23 @@ run, so the run's screenshot shows the menu.
   quest would settle it.
 * Belongs to Phase 7 (rendering correctness).
 
+## Ghost book in the main menu (2026-10-10)
+
+Seen by the user in the playtest (`ss-delta.exe`, all four modules native).
+The main menu is a 3D scene with Librom, the book. A second, translucent
+and red-tinted copy of the book trails behind it with a delay, most visible
+while it moves. Other 3D objects such as bones are doubled the same way.
+The background behind the book also looks lower resolution than the
+foreground (`menu.png` in the repository root, not committed).
+
+* **Hypothesis:** the game renders the background into a separate
+  low-resolution layer (blur or depth of field) and composites it behind
+  the scene. Our build would sample a stale copy of that layer from an
+  earlier frame. That would be a renderer issue (Phase 7).
+* Not yet compared with the JIT alone, Vita3K-Plus or hardware. Scripted
+  input reaches the save list but not the load confirmation, so the
+  comparison is manual for now.
+
 ## Not measured yet
 
 * Real button input through the whole game: title → save creation → hub
