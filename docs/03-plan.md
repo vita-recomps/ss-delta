@@ -357,22 +357,30 @@ and ult, and a clean differential log. **Met** (2026-10-10).
   * ☐ NP (PSN), ad hoc, Near, Smart and Camera are Vita3K's HLE stubs.
     Their offline answers are not checked yet; the game hasn't been seen
     using them outside the online menus.
-* ☐ **Firmware LLE modules.** Still on the JIT in the field (a minute,
-  ~13,000 instructions): `sysmodule.skprx` (module loading), the entry at
-  `80001000`, and `libsceavplayer`'s player thread. Fonts (`libSceFt2`,
-  `libpvf`) and `libscemp4` are loaded as guest code too.
-  * Decide per module whether to HLE it natively or keep it as recompiled
-    guest code: fonts (pvf/ft2), AvPlayer/Mp4 (FMV is H.264/AAC MP4, so FFmpeg
-    can replace it), fiber.
+* ◐ **Firmware LLE modules** ([D11](decisions.md)).
+  * ☑ Recompiled from ELFs `ss-delta.exe` dumps as it loads them
+    (`SSD_DUMP_ELFS=1`, already relocated): `sysmodule.skprx` (19
+    functions), `libSceFt2` (758), `libpvf` (98), `libscemp4` (274) and
+    `libsceavplayer` (305). The translator gained 4-instruction `IT`
+    blocks, `mcr` to TPIDRURO and the fixed-point `vcvt` forms. 0 failing
+    in 7,593 dynarmic tests over these modules.
+  * ☐ 17 font functions (14 `libSceFt2`, 3 `libpvf`) use NEON forms the
+    translator lacks: `vld2`/`vld4`/`vst2`/`vst4`, 64-bit `vld1`/`vst1`,
+    `vshll` by the element size, `vmov.16` and `vbic.i32` immediate. None
+    has run in any session.
   * Firmware code is Sony's. Any recompiled firmware module is generated
     locally from the user's PUP, like the game.
+* ☑ **NativeCPU** (fork patch 0024): threads run on native code alone. It
+  is the default in `ss-delta.exe`; `[recompiled] jit = true` brings the
+  JIT back. Title, dialogs, hub, book menu, field and a quest: **0 JIT
+  instructions**, 29.6 fps.
 * ☐ **Install flow.**
   1. Take the user's NoNpDrm zip/folder.
   2. Decrypt PFS + SELF.
   3. Verify hashes ([hashes](hashes.md)).
   4. Generate and compile.
   5. Lay out `app0:` on disk.
-* ☐ dynarmic stays as an optional build flag for debugging only.
+* ☐ dynarmic stays as an optional build flag for debugging only. It is already unused at run time in `ss-delta.exe`; the option to build without it is still to add (dynarmic is used only inside the cpu library).
 
 **Exit:** `ss-delta.exe` boots from the user's own dump to a quest, with no
 Vita3K GUI and no dynarmic.

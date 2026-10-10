@@ -207,6 +207,25 @@ JIT instructions a minute on the title screen, against 0.8 M with resume
 points. libc's `memcpy` tail branch (`80331df0: bhs 80331d70`) escaped about
 10,000 times a minute; it is now a tail call.
 
+### Firmware modules (Phase 6, D11)
+
+The firmware modules the game loads as guest code are recompiled the same
+way, from ELFs `ss-delta.exe` writes as it loads them (`SSD_DUMP_ELFS=1`).
+Those are decrypted and relocated to the load address already, so they need
+no `--load-base`.
+
+| | sysmodule | libSceFt2 | libpvf | libscemp4 | libsceavplayer |
+|---|---|---|---|---|---|
+| functions recompiled | 19 | 758 | 98 | 274 | 305 |
+| left to the JIT (NEON forms) | 0 | 14 | 3 | 0 | 0 |
+| dynarmic tests | 351 | 3,502 | 1,460 | 1,385 | 895 |
+
+* The translator gained three forms for them: 4-instruction `IT` blocks
+  (the inventory and the translator stopped at three), `mcr` to TPIDRURO
+  (the module loader is kernel code), and the fixed-point `vcvt` forms.
+* With them, and NativeCPU, the JIT runs nothing in title, menu, field and
+  quest runs.
+
 ### NEON
 
 `recomp/armrecomp/neon.py` translates Advanced SIMD instructions into calls

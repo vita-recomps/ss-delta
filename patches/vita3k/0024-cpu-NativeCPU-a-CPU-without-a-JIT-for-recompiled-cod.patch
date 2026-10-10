@@ -1,0 +1,647 @@
+From 29d8ea3055fd5f2ace231b5bb29cc84957c214f5 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 00:38:50 +0200
+Subject: [PATCH 24/25] cpu: NativeCPU, a CPU without a JIT for recompiled code
+ (SSD_AOT_NATIVE=1)
+
+With every guest function the app runs recompiled, the JIT only drove
+threads into native code. NativeCPU keeps the registers in the native
+context and calls the native function at pc until the guest returns to
+the kernel's halt instruction (registered with aot_set_halt). Escapes
+continue at resume points; imports call the HLE function or the native
+export directly; guest code without native code is a logged error that
+ends the thread.
+
+The hooks of recompiled code now dispatch through AotOwner, implemented
+by DynarmicCPU and NativeCPU; AotEscape/AotUnwind are shared. DynarmicCPU
+also copies TPIDRURO back from native code, which kernel modules write.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/CMakeLists.txt                  |   3 +
+ vita3k/cpu/include/cpu/aot.h               |   5 +
+ vita3k/cpu/include/cpu/impl/aot_owner.h    |  44 ++++
+ vita3k/cpu/include/cpu/impl/dynarmic_cpu.h |   9 +-
+ vita3k/cpu/include/cpu/impl/native_cpu.h   |  82 ++++++
+ vita3k/cpu/src/aot.cpp                     |  17 ++
+ vita3k/cpu/src/cpu.cpp                     |   8 +-
+ vita3k/cpu/src/dynarmic_cpu.cpp            |  16 +-
+ vita3k/cpu/src/native_cpu.cpp              | 276 +++++++++++++++++++++
+ vita3k/kernel/src/kernel.cpp               |   1 +
+ 10 files changed, 444 insertions(+), 17 deletions(-)
+ create mode 100644 vita3k/cpu/include/cpu/impl/aot_owner.h
+ create mode 100644 vita3k/cpu/include/cpu/impl/native_cpu.h
+ create mode 100644 vita3k/cpu/src/native_cpu.cpp
+
+diff --git a/vita3k/cpu/CMakeLists.txt b/vita3k/cpu/CMakeLists.txt
+index c8ee2ec0..d02e75c5 100644
+--- a/vita3k/cpu/CMakeLists.txt
++++ b/vita3k/cpu/CMakeLists.txt
+@@ -5,8 +5,10 @@ include/cpu/aot_abi.h
+ include/cpu/common.h
+ include/cpu/functions.h
+ include/cpu/impl/aot_hooks.h
++include/cpu/impl/aot_owner.h
+ include/cpu/impl/dynarmic_cpu.h
+ include/cpu/impl/interface.h
++include/cpu/impl/native_cpu.h
+ include/cpu/disasm/functions.h
+ include/cpu/disasm/state.h
+ 
+@@ -14,6 +16,7 @@ src/aot.cpp
+ src/disasm.cpp
+ src/cpu.cpp
+ src/dynarmic_cpu.cpp
++src/native_cpu.cpp
+ )
+ 
+ add_library(
+diff --git a/vita3k/cpu/include/cpu/aot.h b/vita3k/cpu/include/cpu/aot.h
+index ca56840f..df8ab997 100644
+--- a/vita3k/cpu/include/cpu/aot.h
++++ b/vita3k/cpu/include/cpu/aot.h
+@@ -41,6 +41,11 @@ void aot_deinit();
+ 
+ bool aot_enabled();
+ Address aot_sentinel();
++// the kernel's halt instruction (guest code ends a thread or a callback by returning to it)
++void aot_set_halt(Address halt);
++Address aot_halt();
++// SSD_AOT_NATIVE=1 with recompiled modules: threads run on NativeCPU, without the JIT
++bool aot_native_cpu();
+ 
+ // The native function for a guest entry address (bit 0 set for Thumb), or null. A module's
+ // functions become visible once its code has been checked against guest memory.
+diff --git a/vita3k/cpu/include/cpu/impl/aot_owner.h b/vita3k/cpu/include/cpu/impl/aot_owner.h
+new file mode 100644
+index 00000000..abd11205
+--- /dev/null
++++ b/vita3k/cpu/include/cpu/impl/aot_owner.h
+@@ -0,0 +1,44 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// The CPU recompiled code runs on (cpu/aot.h): what the hooks native code calls (aot_hooks.h)
++// dispatch to. DynarmicCPU and NativeCPU implement it.
++#pragma once
++
++#include <cpu/aot.h>
++
++#include <cstdint>
++
++class AotOwner {
++public:
++    virtual ~AotOwner() = default;
++    // native code calling native code (call_indirect)
++    virtual void aot_call_native(uint32_t addr, AotFn fn) = 0;
++    // native code calling code that has no native function
++    virtual void aot_call_guest(uint32_t target) = 0;
++    // native code calling an import stub
++    virtual void aot_call_import(uint32_t stub) = 0;
++};
++
++// Native code jumped somewhere it cannot continue (aot_hooks::escape): the CPU continues from pc
++// and the native frames since the last boundary are abandoned.
++struct AotEscape {
++    uint32_t pc;
++};
++
++// The thread is exiting (CPUState::aot_unwind): abandon every native frame up to run().
++struct AotUnwind {};
+diff --git a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+index bedda2c0..a0857455 100644
+--- a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
++++ b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+@@ -22,6 +22,7 @@
+ #include <cpu/aot.h>
+ #include <cpu/aot_abi.h>
+ #include <cpu/functions.h>
++#include <cpu/impl/aot_owner.h>
+ #include <cpu/impl/interface.h>
+ 
+ #include <memory>
+@@ -31,7 +32,7 @@ class ArmDynarmicCP15;
+ struct AotShadow;
+ struct AotShadowResult;
+ 
+-class DynarmicCPU : public CPUInterface {
++class DynarmicCPU : public CPUInterface, public AotOwner {
+     friend class ArmDynarmicCallback;
+ 
+     CPUState *parent;
+@@ -116,8 +117,8 @@ public:
+     void aot_sync_to_guest();
+     void aot_sync_from_guest();
+     // native code calling guest code the JIT runs, and an import stub
+-    void aot_call_guest(uint32_t target);
+-    void aot_call_import(uint32_t stub);
++    void aot_call_guest(uint32_t target) override;
++    void aot_call_import(uint32_t stub) override;
+     // native code calling native code through call_indirect, sampled by differential mode
+-    void aot_call_native(uint32_t addr, AotFn fn);
++    void aot_call_native(uint32_t addr, AotFn fn) override;
+ };
+diff --git a/vita3k/cpu/include/cpu/impl/native_cpu.h b/vita3k/cpu/include/cpu/impl/native_cpu.h
+new file mode 100644
+index 00000000..e31a53c6
+--- /dev/null
++++ b/vita3k/cpu/include/cpu/impl/native_cpu.h
+@@ -0,0 +1,82 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// A CPU without a JIT: every guest function it runs is recompiled code (cpu/aot.h). The registers
++// live in the native context; run() calls the native function at pc until the guest returns to the
++// kernel's halt instruction. Guest code without native code is an error. (ss-delta, SSD_AOT_NATIVE)
++#pragma once
++
++#include <cpu/aot_abi.h>
++#include <cpu/common.h>
++#include <cpu/impl/aot_owner.h>
++#include <cpu/impl/interface.h>
++
++class NativeCPU : public CPUInterface, public AotOwner {
++    CPUState *parent;
++    std::size_t core_id;
++    armrecomp::GuestContext guest{};
++    uint32_t cpsr_rest = 0x10; // mode and the T bit; the flags live in the native context
++    bool halted = false;
++    bool log_code = false;
++    bool log_mem = false;
++
++    [[noreturn]] void missing_native_code(uint32_t pc);
++
++public:
++    NativeCPU(CPUState *state, std::size_t processor_id);
++
++    int run() override;
++    void stop() override;
++
++    uint32_t get_reg(uint8_t idx) override;
++    void set_reg(uint8_t idx, uint32_t val) override;
++    uint32_t get_sp() override;
++    void set_sp(uint32_t val) override;
++    uint32_t get_pc() override;
++    void set_pc(uint32_t val) override;
++    uint32_t get_lr() override;
++    void set_lr(uint32_t val) override;
++    uint32_t get_cpsr() override;
++    void set_cpsr(uint32_t val) override;
++    uint32_t get_tpidruro() override;
++    void set_tpidruro(uint32_t val) override;
++    float get_float_reg(uint8_t idx) override;
++    void set_float_reg(uint8_t idx, float val) override;
++    uint32_t get_fpscr() override;
++    void set_fpscr(uint32_t val) override;
++
++    CPUContext save_context() override;
++    void load_context(const CPUContext &ctx) override;
++    void invalidate_jit_cache(Address start, size_t length) override;
++
++    bool is_thumb_mode() override;
++    int step() override;
++
++    bool hit_breakpoint() override;
++    void trigger_breakpoint() override;
++    void set_log_code(bool log) override;
++    void set_log_mem(bool log) override;
++    bool get_log_code() override;
++    bool get_log_mem() override;
++
++    void clear_exclusive() override;
++    std::size_t processor_id() const override;
++
++    void aot_call_native(uint32_t addr, AotFn fn) override;
++    void aot_call_guest(uint32_t target) override;
++    void aot_call_import(uint32_t stub) override;
++};
+diff --git a/vita3k/cpu/src/aot.cpp b/vita3k/cpu/src/aot.cpp
+index 7578c004..64c1445c 100644
+--- a/vita3k/cpu/src/aot.cpp
++++ b/vita3k/cpu/src/aot.cpp
+@@ -65,6 +65,7 @@ struct Registry {
+     std::unordered_map<uint32_t, std::pair<AotFn, LoadedModule *>> resumes;
+     MemState *mem = nullptr;
+     Address sentinel = 0;
++    Address halt = 0;
+     bool enabled = false;
+     bool count_jit_insns = false;
+ };
+@@ -271,6 +272,22 @@ Address aot_sentinel() {
+     return registry.sentinel;
+ }
+ 
++void aot_set_halt(Address halt) {
++    registry.halt = halt;
++}
++
++Address aot_halt() {
++    return registry.halt;
++}
++
++bool aot_native_cpu() {
++    static const bool requested = [] {
++        const char *const env = std::getenv("SSD_AOT_NATIVE");
++        return env && std::string(env) == "1";
++    }();
++    return requested && registry.enabled;
++}
++
+ namespace {
+ 
+ // native code once its module matches guest memory
+diff --git a/vita3k/cpu/src/cpu.cpp b/vita3k/cpu/src/cpu.cpp
+index 715c6543..25f1653b 100644
+--- a/vita3k/cpu/src/cpu.cpp
++++ b/vita3k/cpu/src/cpu.cpp
+@@ -17,7 +17,9 @@
+ 
+ #include <cpu/disasm/functions.h>
+ #include <cpu/functions.h>
++#include <cpu/aot.h>
+ #include <cpu/impl/dynarmic_cpu.h>
++#include <cpu/impl/native_cpu.h>
+ #include <cpu/impl/interface.h>
+ #include <cpu/state.h>
+ #include <mem/ptr.h>
+@@ -47,7 +49,11 @@ CPUStatePtr init_cpu(bool cpu_opt, SceUID thread_id, std::size_t processor_id, M
+         return CPUStatePtr();
+     }
+ 
+-    state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
++    // ss-delta: SSD_AOT_NATIVE=1 runs threads on recompiled code alone, without the JIT
++    if (aot_native_cpu())
++        state->cpu = std::make_unique<NativeCPU>(state.get(), processor_id);
++    else
++        state->cpu = std::make_unique<DynarmicCPU>(state.get(), processor_id, cpu_opt);
+ 
+     return state;
+ }
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 76aa6dbb..5048f782 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -628,19 +628,10 @@ void DynarmicCPU::aot_diff_compare(uint32_t pc, const AotShadowResult &s) {
+ 
+ namespace {
+ 
+-// Native code jumped somewhere it cannot continue (aot_hooks::escape): the JIT continues from pc
+-// and the native frames since the last boundary are abandoned.
+-struct AotEscape {
+-    uint32_t pc;
+-};
+-
+-// The thread is exiting (CPUState::aot_unwind): abandon every native frame up to run().
+-struct AotUnwind {};
+-
+ constexpr auto AOT_HALT = Dynarmic::HaltReason::UserDefined7;
+ 
+-DynarmicCPU &aot_owner(armrecomp::GuestContext *ctx) {
+-    return *static_cast<DynarmicCPU *>(ctx->embedder);
++AotOwner &aot_owner(armrecomp::GuestContext *ctx) {
++    return *static_cast<AotOwner *>(ctx->embedder);
+ }
+ 
+ } // namespace
+@@ -690,7 +681,7 @@ void DynarmicCPU::aot_sync_to_guest() {
+     guest.fpscr = jit->Fpscr();
+     guest.tpidruro = cp15->get_tpidruro();
+     guest.excl_valid = 0;
+-    guest.embedder = this;
++    guest.embedder = static_cast<AotOwner *>(this);
+ }
+ 
+ void DynarmicCPU::aot_sync_from_guest() {
+@@ -700,6 +691,7 @@ void DynarmicCPU::aot_sync_from_guest() {
+     jit->SetCpsr(cpsr);
+     memcpy(jit->ExtRegs().data(), guest.vfp.s, sizeof(guest.vfp));
+     jit->SetFpscr(guest.fpscr);
++    cp15->set_tpidruro(guest.tpidruro); // kernel modules write it (mcr)
+ }
+ 
+ // The JIT stopped at a native entry or at the sentinel (true). Runs the native function and puts
+diff --git a/vita3k/cpu/src/native_cpu.cpp b/vita3k/cpu/src/native_cpu.cpp
+new file mode 100644
+index 00000000..50729774
+--- /dev/null
++++ b/vita3k/cpu/src/native_cpu.cpp
+@@ -0,0 +1,276 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++#include <cpu/impl/native_cpu.h>
++
++#include <cpu/state.h>
++#include <mem/ptr.h>
++#include <util/log.h>
++
++#include <bit>
++#include <cstring>
++#include <mutex>
++#include <set>
++
++NativeCPU::NativeCPU(CPUState *state, std::size_t processor_id)
++    : parent(state)
++    , core_id(processor_id) {
++    guest.embedder = static_cast<AotOwner *>(this);
++}
++
++void NativeCPU::missing_native_code(uint32_t pc) {
++    static std::mutex m;
++    static std::set<uint32_t> reported;
++    {
++        const std::lock_guard<std::mutex> lock(m);
++        if (reported.insert(pc).second)
++            LOG_CRITICAL("NativeCPU: no native code for the guest code at {} (thread {}). It needs recompiling; meanwhile ss-delta.ini [recompiled] jit = true runs it on the JIT", log_hex(pc), parent->thread_id);
++    }
++    throw AotUnwind{};
++}
++
++// Calls the native function at pc until the guest returns to the halt instruction; returns 1 then,
++// -1 when guest code has no native code
++int NativeCPU::run() {
++    halted = false;
++    parent->svc_called = false;
++    const uint32_t halt = aot_halt();
++    try {
++        while (true) {
++            const uint32_t pc = guest.r[15];
++            const bool thumb = is_thumb_mode();
++            if (pc == halt && thumb) {
++                halted = true;
++                return 1;
++            }
++            const uint32_t entry = pc | (thumb ? 1u : 0u);
++            AotFn fn = aot_lookup(entry);
++            if (fn) {
++                aot_count_native_entry();
++            } else if ((fn = aot_lookup_resume(entry))) {
++                aot_count_native_entry();
++                aot_count_resume_entry();
++                guest.resume = pc;
++            } else {
++                missing_native_code(pc);
++            }
++            uint32_t next;
++            try {
++                fn(&guest);
++                next = guest.r[15];
++            } catch (const AotEscape &e) {
++                next = e.pc;
++            }
++            aot_add_native_insns(guest.insns);
++            guest.insns = 0;
++            set_pc(next);
++        }
++    } catch (const AotUnwind &) {
++        // the thread is exiting (its run loop sees why), or guest code had no native code
++        if (!parent->aot_unwind)
++            return -1;
++    }
++    return halted;
++}
++
++// native code is not preemptible: suspend requests take effect when it returns
++void NativeCPU::stop() {}
++
++void NativeCPU::aot_call_native(uint32_t, AotFn fn) {
++    fn(&guest);
++}
++
++void NativeCPU::aot_call_guest(uint32_t target) {
++    const AotFn fn = aot_lookup(target);
++    if (!fn)
++        missing_native_code(target & ~1u);
++    const uint32_t ret = guest.r[14];
++    fn(&guest);
++    guest.r[15] = ret;
++}
++
++// As DynarmicCPU::aot_call_import, with the registers already in the native context
++void NativeCPU::aot_call_import(uint32_t stub) {
++    const uint32_t *const words = Ptr<uint32_t>(stub).get(*parent->mem);
++    if (words[0] != 0xef000000 || words[1] != 0xe1a0f00e) {
++        // bound to another module's export: movw r12, #lo; movt r12, #hi; bx r12
++        if ((words[0] & 0x0ff0f000) == 0x0300c000 && (words[1] & 0x0ff0f000) == 0x0340c000 && (words[2] & 0x0fffffff) == 0x012fff1c) {
++            const uint32_t lo = ((words[0] >> 4) & 0xf000) | (words[0] & 0xfff);
++            const uint32_t hi = ((words[1] >> 4) & 0xf000) | (words[1] & 0xfff);
++            const uint32_t target = (hi << 16) | lo;
++            if (const AotFn fn = aot_lookup(target)) {
++                guest.r[12] = target;
++                fn(&guest);
++                return;
++            }
++            missing_native_code(target & ~1u);
++        }
++        missing_native_code(stub);
++    }
++    // svc #0; mov pc, lr; .word nid: the HLE function, as the run loop would call it
++    aot_count_import_call();
++    const uint32_t ret = guest.r[14], sp = guest.r[13];
++    set_pc(stub + 4);
++    const bool was_halted = halted;
++    parent->import_handler(*parent, words[2]);
++    guest.excl_valid = 0;
++    halted = was_halted;
++    if (parent->aot_unwind)
++        throw AotUnwind{};
++    if (guest.r[15] != stub + 4 || is_thumb_mode() || guest.r[13] != sp || guest.r[14] != ret) {
++        // the HLE function switched contexts (SceFiber): continue where the other context is
++        aot_count_escape(stub);
++        if (!is_thumb_mode() && *Ptr<uint32_t>(guest.r[15]).get(*parent->mem) == 0xe1a0f00e)
++            throw AotEscape{ guest.r[14] };
++        throw AotEscape{ guest.r[15] | (is_thumb_mode() ? 1u : 0u) };
++    }
++    guest.r[15] = ret;
++}
++
++uint32_t NativeCPU::get_reg(uint8_t idx) {
++    return guest.r[idx];
++}
++
++void NativeCPU::set_reg(uint8_t idx, uint32_t val) {
++    guest.r[idx] = val;
++}
++
++uint32_t NativeCPU::get_sp() {
++    return guest.r[13];
++}
++
++void NativeCPU::set_sp(uint32_t val) {
++    guest.r[13] = val;
++}
++
++uint32_t NativeCPU::get_pc() {
++    return guest.r[15];
++}
++
++void NativeCPU::set_pc(uint32_t val) {
++    if (val & 1) {
++        cpsr_rest |= 0x20;
++        guest.r[15] = val & ~1u;
++    } else {
++        cpsr_rest &= ~0x20u;
++        guest.r[15] = val & ~3u;
++    }
++}
++
++uint32_t NativeCPU::get_lr() {
++    return guest.r[14];
++}
++
++void NativeCPU::set_lr(uint32_t val) {
++    guest.r[14] = val;
++}
++
++uint32_t NativeCPU::get_cpsr() {
++    return guest.n << 31 | guest.z << 30 | guest.c << 29 | guest.v << 28 | guest.q << 27 | (guest.ge & 0xf) << 16 | (cpsr_rest & 0x07f0ffffu);
++}
++
++void NativeCPU::set_cpsr(uint32_t val) {
++    guest.n = (val >> 31) & 1;
++    guest.z = (val >> 30) & 1;
++    guest.c = (val >> 29) & 1;
++    guest.v = (val >> 28) & 1;
++    guest.q = (val >> 27) & 1;
++    guest.ge = (val >> 16) & 0xf;
++    cpsr_rest = val & 0x07f0ffffu;
++}
++
++uint32_t NativeCPU::get_tpidruro() {
++    return guest.tpidruro;
++}
++
++void NativeCPU::set_tpidruro(uint32_t val) {
++    guest.tpidruro = val;
++}
++
++float NativeCPU::get_float_reg(uint8_t idx) {
++    return guest.vfp.f[idx];
++}
++
++void NativeCPU::set_float_reg(uint8_t idx, float val) {
++    guest.vfp.f[idx] = val;
++}
++
++uint32_t NativeCPU::get_fpscr() {
++    return guest.fpscr;
++}
++
++void NativeCPU::set_fpscr(uint32_t val) {
++    guest.fpscr = val;
++}
++
++CPUContext NativeCPU::save_context() {
++    CPUContext ctx;
++    std::copy(guest.r, guest.r + 16, ctx.cpu_registers.begin());
++    static_assert(sizeof(ctx.fpu_registers) == sizeof(guest.vfp));
++    memcpy(ctx.fpu_registers.data(), guest.vfp.s, sizeof(ctx.fpu_registers));
++    ctx.fpscr = guest.fpscr;
++    ctx.cpsr = get_cpsr();
++    return ctx;
++}
++
++void NativeCPU::load_context(const CPUContext &ctx) {
++    std::copy(ctx.cpu_registers.begin(), ctx.cpu_registers.end(), guest.r);
++    memcpy(guest.vfp.s, ctx.fpu_registers.data(), sizeof(guest.vfp));
++    guest.fpscr = ctx.fpscr;
++    set_cpsr(ctx.cpsr);
++}
++
++void NativeCPU::invalidate_jit_cache(Address, size_t) {}
++
++bool NativeCPU::is_thumb_mode() {
++    return cpsr_rest & 0x20;
++}
++
++// no single stepping without a JIT: run instead
++int NativeCPU::step() {
++    return run();
++}
++
++bool NativeCPU::hit_breakpoint() {
++    return false;
++}
++
++void NativeCPU::trigger_breakpoint() {}
++
++void NativeCPU::set_log_code(bool log) {
++    log_code = log;
++}
++
++void NativeCPU::set_log_mem(bool log) {
++    log_mem = log;
++}
++
++bool NativeCPU::get_log_code() {
++    return log_code;
++}
++
++bool NativeCPU::get_log_mem() {
++    return log_mem;
++}
++
++void NativeCPU::clear_exclusive() {
++    guest.excl_valid = 0;
++}
++
++std::size_t NativeCPU::processor_id() const {
++    return core_id;
++}
+diff --git a/vita3k/kernel/src/kernel.cpp b/vita3k/kernel/src/kernel.cpp
+index 94b509ac..badb49cf 100644
+--- a/vita3k/kernel/src/kernel.cpp
++++ b/vita3k/kernel/src/kernel.cpp
+@@ -106,6 +106,7 @@ bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cp
+     halt_ptr[0] = 0xBF00; // NOP
+     halt_ptr[1] = 0xBF30; // WFI
+     halt_instruction_pc = halt_instruction.get() | 1; // thumb mode pc
++    aot_set_halt(halt_instruction.get());
+ 
+     // Recompiled modules (SSD_AOT), if any
+     aot_sentinel = alloc_block(mem, 4, "aot_sentinel");
+-- 
+2.56.0.windows.2
+

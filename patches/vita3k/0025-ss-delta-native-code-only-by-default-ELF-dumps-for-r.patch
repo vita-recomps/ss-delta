@@ -1,0 +1,98 @@
+From 0648e9284977931cee55db9423aad3ecd6120c08 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 00:38:50 +0200
+Subject: [PATCH 25/25] ss-delta: native code only by default; ELF dumps for
+ recompiling firmware modules
+
+ss-delta.exe runs on NativeCPU when recompiled modules are present,
+unless [recompiled] jit = true keeps the JIT as a fallback.
+SSD_DUMP_ELFS=1 writes every loaded module (decrypted, relocated) to
+ss-delta/elfdumps/: the firmware modules the game loads are recompiled
+from these.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/main.cpp     | 16 ++++++++++++++++
+ vita3k/ss-delta/settings.cpp |  5 +++++
+ vita3k/ss-delta/settings.h   |  1 +
+ 3 files changed, 22 insertions(+)
+
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index c004c36f..9061bed7 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -29,6 +29,7 @@
+ #include <config/version.h>
+ #include <display/state.h>
+ #include <emuenv/state.h>
++#include <kernel/state.h>
+ #include <ime/functions.h>
+ #include <modules/module_parent.h>
+ #include <sdl-frontend/session.h>
+@@ -110,6 +111,16 @@ int main(int argc, char *argv[]) {
+         const std::string modules = select_recompiled_modules(settings.recompiled);
+         LOG_INFO_IF(!modules.empty(), "Recompiled modules: {}", modules);
+         LOG_WARN_IF(modules.empty(), "No recompiled modules in {}: everything runs on the JIT", settings.recompiled);
++        // the native CPU (no JIT) unless [recompiled] jit = true; SSD_AOT_NATIVE set beforehand wins
++        if (!modules.empty() && !settings.jit && !std::getenv("SSD_AOT_NATIVE")) {
++#ifdef _WIN32
++            _putenv_s("SSD_AOT_NATIVE", "1");
++#else
++            setenv("SSD_AOT_NATIVE", "1", 1);
++#endif
++        }
++        LOG_INFO("CPU: {}", !modules.empty() && std::getenv("SSD_AOT_NATIVE") && std::string(std::getenv("SSD_AOT_NATIVE")) == "1"
++                ? "native code only (NativeCPU)" : "JIT with native code");
+     }
+ 
+     Config cfg{};
+@@ -161,6 +172,11 @@ int main(int argc, char *argv[]) {
+             LOG_WARN("ss-delta.ini: {}", line);
+     }
+ 
++    // SSD_DUMP_ELFS: write every module as loaded (decrypted, relocated) to ss-delta/elfdumps/, the
++    // input for recompiling the firmware modules the game loads (docs/05-recompiler.md in ss-delta)
++    if (std::getenv("SSD_DUMP_ELFS"))
++        emuenv.kernel.debugger.dump_elfs = true;
++
+     init_libraries(emuenv);
+     if (!app::init_apps_list(emuenv)) {
+         fail("The list of installed apps could not be read. See ss-delta/vita3k.log.");
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index 353b7b57..a9ef8655 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -57,6 +57,10 @@ volume = 100
+ [recompiled]
+ ; Run the recompiled modules natively (false: everything on the JIT, for comparison).
+ enabled = true
++; Keep the JIT (dynarmic) for any guest code that has no native code. Off: the game runs on
++; native code alone, and stops with "no native code" in ss-delta/vita3k.log if it ever needs
++; code that was not recompiled; turn this on then.
++jit = false
+ 
+ [debug]
+ ; Log detail in ss-delta/vita3k.log: trace, debug, info, warn, error, critical, off.
+@@ -197,6 +201,7 @@ Settings load_settings(const fs::path &dir) {
+     }
+     get_number("audio.volume", out.volume, 0, 100);
+     get_bool("recompiled.enabled", out.use_recompiled);
++    get_bool("recompiled.jit", out.jit);
+     if (const auto v = get("debug.log_level")) {
+         static const std::vector<std::string> levels{ "trace", "debug", "info", "warn", "error", "critical", "off" };
+         const auto it = std::find(levels.begin(), levels.end(), string_utils::tolower(*v));
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index 0f041d8e..7873b646 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -40,6 +40,7 @@ struct Settings {
+     int volume = 100;
+     // [recompiled]
+     bool use_recompiled = true;
++    bool jit = false; // keep the JIT for guest code without native code (NativeCPU otherwise)
+     // [debug]
+     int log_level = 2; // spdlog: 0 trace ... 6 off
+     bool validation_layer = false;
+-- 
+2.56.0.windows.2
+

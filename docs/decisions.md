@@ -349,3 +349,41 @@ differential checks and Vita3K comparisons run against.
 * It stays in step with the fork: every fix applies to both executables.
 * Vita3K's other subsystems (app list, users, config types) come along.
   The exe hides them instead of removing them.
+
+## D11 — Threads run on native code alone (NativeCPU); firmware modules are recompiled too (accepted, 2026-10-11)
+
+**Context:** Phase 6's exit is no dynarmic. After Phase 5 the JIT ran only
+firmware modules (the module loader, the video player) and Vita3K's halt
+instruction. Its main job was driving threads into native code.
+
+**Decision:**
+
+* The firmware modules the game loads as guest code are recompiled like
+  libc. The input is ELFs that `ss-delta.exe` writes as it loads them
+  (`SSD_DUMP_ELFS=1`), decrypted and already relocated to their load
+  addresses. They are generated locally from the player's firmware and
+  never committed (D2). The modules are `sysmodule.skprx`, `libSceFt2`,
+  `libpvf`, `libscemp4` and `libsceavplayer`.
+* `NativeCPU`, a second CPU backend in the fork:
+  * registers in the native context;
+  * `run()` calls the native function at pc until the guest returns to
+    the halt instruction;
+  * escapes continue at resume points (D9), imports go straight to the
+    HLE function or the native export;
+  * guest code without native code is a logged error.
+* The AOT hooks dispatch through an interface (`AotOwner`) both backends
+  implement.
+* `ss-delta.exe` uses `NativeCPU` by default. `[recompiled] jit = true` in
+  `ss-delta.ini` brings the JIT back as a fallback.
+
+**Consequences:**
+
+* Title, dialogs, hub, book menu, field and a quest run with **zero JIT
+  instructions** at the same frame rate.
+* Native code can't be preempted. A suspend request takes effect only when
+  the guest returns to the run loop. Single-stepping isn't available.
+* Seventeen font functions (`libSceFt2`, `libpvf`) still use NEON forms
+  the translator lacks. None of them has run in any session so far. If one
+  ever does, `NativeCPU` names the address in the log.
+* Building without dynarmic is now a build option to add (dynarmic is used
+  only inside the cpu library). Until then it stays linked, unused.

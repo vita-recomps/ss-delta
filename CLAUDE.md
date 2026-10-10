@@ -61,6 +61,13 @@ conventions.
   `python -I tools/v3kdrive.py <bin dir> start`, then `run`/`close` as for
   Vita3K. `tools/make-dist.ps1 [-VitaFs <fs>]` lays out a self-contained
   folder in `dist/` (ignored; it holds the game-derived `ssd_aot_*.dll`).
+- Firmware modules (D11): run `ss-delta.exe` once with `SSD_DUMP_ELFS=1`, copy
+  `ss-delta/elfdumps/PCSA00152/*_{sysmodule,libSceFt2,libpvf,libscemp4,libsceavplayer}.elf`
+  to `extracted/elf/firmware/<name>.elf`, then
+  `python -I recomp/recompile.py extracted/elf/firmware/<name>.elf generated/fw_<name>`
+  (no `--load-base`: the dumps are relocated) and add `fw_<name>` to
+  `RECOMP_MODULES` in `build/recomp`. `ss-delta.exe` runs on NativeCPU (no
+  JIT) by default.
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).
