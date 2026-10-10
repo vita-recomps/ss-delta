@@ -102,6 +102,22 @@ the Radeon 760M. It renders the field correctly and the Walhalla floor
 textured. **Our fork on Vulkan is now the reference on this machine.** Plus
 stays as a cross-check. The NVIDIA reference needs a retest with our fork.
 
+**Update 4 (2026-10-10):** the reference settings for our fork are now
+`disable-surface-sync: false` (surface sync on) and `high-accuracy: true`,
+with `memory-mapping: double-buffer` and `async-pipeline-compilation: true`
+kept. Compared with a Vita hardware screenshot of the title:
+
+* surface sync brings back the haze and smoke that the game renders
+  offscreen and reads back from memory;
+* high accuracy removes the flicker and blocks in the green smoke;
+* Plus's `external-host` mapping hides the skulls, butterfly and candle in
+  our fork, so it stays off.
+
+The cost is small: 29.5 fps in the field, and 29.2 fps at the title with
+one 46 ms frame. See [02-baseline](02-baseline.md#fog-and-smoke-differ-from-hardware-2026-10-10).
+The config lives in `build/` and isn't committed, so these values are
+recorded here and in `CLAUDE.md`.
+
 ## D5 — Fork upstream Vita3K, not Vita3K-Plus; cherry-pick from Plus (accepted, 2026-10-09)
 
 **Context:** Phase 1 needs a Vita3K source tree we build and patch. Plus v1.2

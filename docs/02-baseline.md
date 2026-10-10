@@ -666,17 +666,33 @@ The JIT-only fork looks the same as the native build, so this is a renderer
 issue, not a recompiler one. Our OpenGL path draws no background scene at
 all, so it can't serve as a comparison.
 
-**Hypothesis:** these effects are soft particles that sample the scene's
-depth buffer. Plus has two Delta-specific depth fixes on its
-`all-enhancements` branch:
+**Cause: settings, not code.** These effects depend on two renderer
+settings our config had off. Upstream defaults both to off for speed; Plus
+defaults them on.
 
-* `98a65bff` "Fixes for depth in SSDelta": `gxm/textures.cpp`,
-  `texture/cache.cpp`, `vulkan/surface_cache.cpp`, `sync_state.cpp`;
-  76 lines;
-* `d248beee` "Refix Sacrifice Soul Delta outlines": `surface_cache`;
-  19 lines.
+| Our fork with | Haze | Green smoke | Skulls, butterfly, candle |
+|---|---|---|---|
+| our old settings (sync off, `high-accuracy: false`) | missing | faint glow | yes |
+| all four of Plus's settings | yes | yes | **missing** (owner, live) |
+| surface sync only | yes | flickers, pops in and out | yes |
+| surface sync + synchronous pipeline compilation | yes | hard-edged rectangles through it | yes |
+| surface sync + `memory-mapping: external-host` | yes | yes | **ghost outlines only** |
+| **surface sync + `high-accuracy: true`** | **yes** | **soft, steady in all 8 burst frames** | **yes, butterfly wings patterned** |
 
-Both are candidates to port (the fork's `plus` remote now has the branch).
+* **Surface sync** copies GPU-rendered surfaces back to guest memory. The
+  game renders the haze offscreen and later reads it as an ordinary
+  texture.
+* **High accuracy** makes shader framebuffer reads exact, which the smoke
+  particles' blending relies on.
+* The burst runs took 8 screenshots 150 ms apart on the title, compared as
+  smoke-region crops.
+* With the final settings the field runs at 29.5 fps (min 29), and the
+  title at 29.2 fps with one 46 ms frame. That is D4 update 4.
+* Plus's plain butterfly wings may come from its `external-host` mapping
+  (**hypothesis**, not tested on Plus).
+* The two Plus depth commits (`98a65bff`, `d248beee`) were not needed. They
+  don't apply cleanly to upstream anyway, because they build on earlier
+  Plus refactors.
 
 ## Not measured yet
 

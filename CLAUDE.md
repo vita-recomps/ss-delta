@@ -40,6 +40,9 @@ conventions.
   with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,
   Qt 6.11.0 in `C:\Qt`) into `build/vita3k`. Export our commits to
   `patches/vita3k/` with `git format-patch` before committing here.
+- Our build's `config.yml` must keep `disable-surface-sync: false` and
+  `high-accuracy: true` (D4 update 4: fog, haze and smoke) and
+  `memory-mapping: double-buffer` (`external-host` hides objects).
 - The shader cache in `build/vita3k/bin/RelWithDebInfo/cache/shaders/` is
   keyed by guest shader, not by translator version. Runs of a build with
   changed shader translation (debug branches, `SSD_DENORM`, ...) leave
