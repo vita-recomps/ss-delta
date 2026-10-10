@@ -710,7 +710,7 @@ run, so the run's screenshot shows the menu.
   quest would settle it.
 * Belongs to Phase 7 (rendering correctness).
 
-## Ghost book in the main menu (2026-10-10)
+## Ghost book in the main menu (2026-10-10, fixed)
 
 Seen by the user in the playtest (`ss-delta.exe`, all four modules native).
 The main menu is a 3D scene with Librom, the book. A second, translucent
@@ -723,12 +723,26 @@ foreground (`menu.png` in the repository root, not committed).
   enabled = false`, everything on the JIT (the user, 2026-10-10).
 * **Hardware:** no ghost. There is a bloom glow around objects there, and
   it stays exactly on them while they move (the user, 2026-10-10).
-* So the ghost is the game's bloom, drawn a frame or more late. Our
-  renderer seems to sample the blurred bloom layer from an earlier frame
-  (**hypothesis:** a render target the game reads back is copied for
-  sampling before the current frame has written it). The red tint and the
-  coarse look are the bloom layer's own.
-* Phase 7. Not yet compared with OpenGL or Vita3K-Plus.
+* So the ghost is the game's bloom, drawn a frame or more late. The
+  butterfly on the title screen shows it too (the user).
+* **Cause (fixed, fork patch 0018):** the game builds its bloom in two
+  atlas render targets of small tiles (`618680c0` 256×512 and `618e80e0`
+  512×384 in the menu) and composites the last tiles over the scene.
+  Vita3K's Vulkan surface cache accepted a texture inside a surface only
+  if `address + stride × height` stayed inside it. For a tile in the
+  right-hand part of an atlas that overshoots by the tile's x offset. So
+  the final tiles (`618c82c0`, `619684e0`) were read from guest memory,
+  which holds the atlas as of its last sync, an older frame. The check now
+  ends a linear texture at its last row's last pixel.
+* Found with a temporary renderer trace of every render target and
+  texture lookup. The atlas passes themselves were already correct: their
+  draws use a full-target scissor, so Vita3K restarts the render pass per
+  draw.
+* Verified on the title: frames without the fix show a blurred copy of the
+  butterfly where it was a moment before; with it the glow stays on the
+  butterfly. The field is unchanged (29.5 fps).
+* OpenGL has a similar check in its own surface cache; not changed,
+  because Vulkan is our renderer (D4).
 
 ## Not measured yet
 

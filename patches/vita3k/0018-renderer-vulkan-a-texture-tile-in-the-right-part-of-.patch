@@ -1,0 +1,45 @@
+From 60fb588b1e1ed027f51ca33740f3065ae9f61b07 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 21:57:42 +0200
+Subject: [PATCH] renderer/vulkan: a texture tile in the right part of a
+ surface is found in the surface cache
+
+retrieve_color_surface_as_texture accepted a sub-rectangle of a cached
+color surface only if address + stride * height stayed inside it. For a
+linear texture the last row ends after width pixels, not a whole stride,
+so a tile in the right-hand part of an atlas surface failed the check and
+was read from guest memory, which holds the surface as of its last sync:
+an older frame.
+
+Soul Sacrifice Delta builds its bloom in such atlases and composites the
+last tiles over the scene, so the bloom trailed moving objects by a frame
+or more (the butterfly on the title, the book in the main menu).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/renderer/src/vulkan/surface_cache.cpp | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/vita3k/renderer/src/vulkan/surface_cache.cpp b/vita3k/renderer/src/vulkan/surface_cache.cpp
+index 289bb6f4..8aa6203f 100644
+--- a/vita3k/renderer/src/vulkan/surface_cache.cpp
++++ b/vita3k/renderer/src/vulkan/surface_cache.cpp
+@@ -465,8 +465,13 @@ std::optional<TextureLookupResult> VKSurfaceCache::retrieve_color_surface_as_tex
+         // about the strides, I've yet to see a case where the byte stride is different
+         return std::nullopt;
+ 
+-    // Check if we can use this surface
+-    bool addr_in_range_of_cache = ((address + total_surface_size) <= (ite->first + info.total_bytes + 4));
++    // Check if we can use this surface. A linear texture ends with its last row's last pixel, not a
++    // whole stride further: a tile in the right part of an atlas surface (Soul Sacrifice Delta's bloom
++    // chain) would otherwise overrun it, and be read from memory as it was at the last sync
++    uint32_t texture_end_bytes = total_surface_size;
++    if (tiling == SurfaceTiling::Linear && original_height > 0)
++        texture_end_bytes = stride_bytes * (original_height - 1) + original_width * gxm::bits_per_pixel(base_format) / 8;
++    bool addr_in_range_of_cache = ((address + texture_end_bytes) <= (ite->first + info.total_bytes + 4));
+ 
+     if (ite->first != address && !addr_in_range_of_cache)
+         // persona 4 sample from the top of a texture while the bottom wasn't rendered to, the fact that both the surface and
+-- 
+2.56.0.windows.2
+
