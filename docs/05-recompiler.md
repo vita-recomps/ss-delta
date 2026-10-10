@@ -101,8 +101,50 @@ CPU through `call_indirect`.
 | flag writes dropped | 2,481,100 | 67,257 | 37,832 | 14,111 |
 | buckets | 175 | 4 | 3 | 1 |
 
-The libraries' code is generated at their ELF addresses. Vita3K loads them
-elsewhere (libc at `0x8031e000`), so they don't run natively yet (Phase 5).
+**Relocatable modules** (libc, libfios2, libult) are generated for the
+address Vita3K loads their code segment at ([D8](decisions.md)):
+
+```
+python -I recomp/recompile.py extracted/elf/libc.elf generated/libc --load-base 8031e000
+python -I recomp/recompile.py extracted/elf/libfios2.elf generated/libfios2 --load-base 8036f000
+python -I recomp/recompile.py extracted/elf/libult.elf generated/libult --load-base 80454000
+```
+
+* The front end decodes the code at those addresses, so branch targets,
+  return addresses and PC-relative loads are runtime values.
+* The loader patches data references through the relocation segments.
+  `vitaelf.relocation_sites` parses formats 0–9, mirroring Vita3K's
+  `relocate()`. In code they are only Thumb `movw`/`movt` pairs (libc 3,128
+  pairs, libfios2 3,200, libult 1,921), which generated code decodes at run
+  time, and `Abs32` literals, which it reads from memory anyway.
+* The code hash skips every patched word, so a module loaded at another
+  address fails verification and stays on the JIT.
+* In the fork, native calls through an eboot import stub bound to an LLE
+  export (`movw/movt r12; bx r12`) go straight to the native export
+  (patch 0009).
+
+| Natively (`SSD_AOT`) | Title | `ELDER DEFAULT MAP` | fps |
+|---|---|---|---|
+| eboot | 54% | 71% | 29.6 |
+| eboot + libc | 80.4% | — | 29.5 |
+| **eboot + libc + libfios2** | **80.3%** | **91.7%** | 29.5 |
+| eboot + libult | stalls (counters stop) | — | 22.7 |
+| all four | 96.8% of very little | — | 8–11 |
+
+**libult stays on the JIT.** It is the game's user-level threading library,
+built on SceFiber. Its fiber switches go through HLE calls that swap the CPU
+context, which abandons native frames on every switch, and the scheduler
+stalls. Phase 6 plans libult on host fibers anyway.
+
+Remaining JIT work, called from native code:
+
+* the eboot's ARM-mode functions (`81a1be08`, `81a1cd48`, `81a20000`,
+  `81a1d600`, `81a1c940`, `81a20590`, `81a1f9e8`);
+* libult (`sceUltQueuePop`/`Push`).
+
+There are also about 10,000 escapes per minute into libc's `memcpy`
+(`80331d71`; `0x81013d70` in the ELF, the function whose exidx mode bit is
+wrong).
 
 ### NEON
 

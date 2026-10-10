@@ -252,3 +252,29 @@ isn't recompiled (NEON, ARM mode, the LLE libraries, indirect jumps).
 * Generated code is never linked into Vita3K. The fork stays free of
   game-derived code (D2), and a regenerated DLL needs no Vita3K rebuild
   unless the ABI version changes.
+
+## D8 — Relocatable modules are generated for Vita3K's load addresses (accepted, 2026-10-10)
+
+**Context:** libc, libfios2 and libult are relocatable. Vita3K loads their
+code at addresses other than the ELF's (libc at `0x8031e000`). Generated
+code bakes code addresses in: return addresses, branch and escape targets,
+and PC-relative loads.
+
+**Decision:**
+
+* Generate each module for the address Vita3K loads it at
+  (`recompile.py --load-base`), decoding its code at runtime addresses.
+* Data references the loader relocates (Thumb `movw`/`movt`) are decoded
+  from guest memory at run time.
+* The code hash, with every relocated word skipped, guards the choice: a
+  module loaded elsewhere fails verification and runs on the JIT.
+
+**Consequences:**
+
+* The addresses are a property of the boot sequence, not of the modules.
+  They were the same in every run so far (title and field boots).
+* If the order Vita3K loads modules in ever changes, the libraries quietly
+  fall back to the JIT. The log says so ("does not match").
+* A position-independent alternative (adding a module base at run time) is
+  still possible if the addresses turn out to vary.
+

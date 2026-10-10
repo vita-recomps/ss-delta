@@ -223,7 +223,7 @@ there are 0 unsupported instructions in all four modules, and both test
 suites pass. Size and compile time are in
 [05-recompiler](05-recompiler.md#build-130-eboot).
 
-## Phase 4 — Hybrid runtime in the Vita3K fork (L) ◐
+## Phase 4 — Hybrid runtime in the Vita3K fork (L) ☑
 
 Design: [D7](decisions.md). Details and numbers:
 [05-recompiler](05-recompiler.md#runtime-in-the-fork-phase-4). Fork patches
@@ -268,7 +268,10 @@ Design: [D7](decisions.md). Details and numbers:
 
 * ☑ Boot to the title with the AOT build loaded. Title and field render the
   same as the JIT build, at 30 fps.
-* ◐ **At least 80% of executed guest instructions native at the title.**
+* ☑ **At least 80% of executed guest instructions native at the title.**
+  **80.3% at the title, 91.7% in the field** (29.5 fps) with eboot, libc
+  and libfios2 native; libult stays on the JIT (fibers). See
+  [05-recompiler](05-recompiler.md#coverage-130).
   With Phase 5's NEON layer (done early, 2026-10-10): **54% at the title,
   71% in the field.** What remains is libc and the other LLE libraries, plus
   the eboot's 28 ARM-mode functions.
@@ -293,9 +296,11 @@ Design: [D7](decisions.md). Details and numbers:
     so, saturation, and `vrecpe`/`vrsqrte` estimate tables bit-exact.
   * Unit tests against dynarmic, per op.
 * ☐ The 27–29 ARM-mode functions.
-* ☐ Recompile `libc`, `libfios2` and `libult` with the same tool. They are
-  separate corpora at their own load addresses; record the load addresses
-  Vita3K picks, or fix them.
+* ◐ Recompile `libc`, `libfios2` and `libult` with the same tool. They are
+  generated at the load addresses Vita3K picks ([D8](decisions.md)); libc
+  and libfios2 run natively. ☐ libult stalls natively (fiber switches drop
+  native frames): it stays on the JIT until then, or until Phase 6 moves it
+  to host fibers.
 * ☐ Differential runs through quests via the debug Stage Select (561 quests,
   all reachable through `BootSequence Quest Select`).
 

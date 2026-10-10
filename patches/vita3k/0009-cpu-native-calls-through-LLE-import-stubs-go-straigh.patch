@@ -1,0 +1,42 @@
+From 4a88c3730189264bad552fe670dedb2068a0259c Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 14:25:46 +0200
+Subject: [PATCH] cpu: native calls through LLE import stubs go straight to
+ native exports
+
+A stub bound to another module's export is movw r12/movt r12/bx r12; when
+the target has native code, call it directly (r12 = target) instead of
+running the stub on the JIT.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/src/dynarmic_cpu.cpp | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 77939ba3..448b41da 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -792,7 +792,18 @@ void DynarmicCPU::aot_call_guest(uint32_t target) {
+ void DynarmicCPU::aot_call_import(uint32_t stub) {
+     const uint32_t *const words = Ptr<uint32_t>(stub).get(*parent->mem);
+     if (words[0] != 0xef000000 || words[1] != 0xe1a0f00e) {
+-        // bound to another module's export (movw/movt/bx r12) or something else: run the stub
++        // bound to another module's export: movw r12, #lo; movt r12, #hi; bx r12. When the export
++        // has native code, call it directly (as the stub would, with r12 = target)
++        if ((words[0] & 0x0ff0f000) == 0x0300c000 && (words[1] & 0x0ff0f000) == 0x0340c000 && (words[2] & 0x0fffffff) == 0x012fff1c) {
++            const uint32_t lo = ((words[0] >> 4) & 0xf000) | (words[0] & 0xfff);
++            const uint32_t hi = ((words[1] >> 4) & 0xf000) | (words[1] & 0xfff);
++            const uint32_t target = (hi << 16) | lo;
++            if (const AotFn fn = aot_lookup(target)) {
++                guest.r[12] = target;
++                fn(&guest);
++                return;
++            }
++        }
+         aot_call_guest(stub);
+         return;
+     }
+-- 
+2.56.0.windows.2
+
