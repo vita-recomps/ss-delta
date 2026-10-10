@@ -321,7 +321,7 @@ and ult, and a clean differential log. **Met** (2026-10-10).
 
 ## Phase 6 — Standalone runtime (L) ◐
 
-* ◐ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
+* ☑ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
   config, and its own `ss-delta.ini` (like `decimation.ini`).
   * ☑ `ss-delta.exe`, a target in the fork ([D10](decisions.md)), on
     upstream's SDL front end. It boots PCSA00152 directly with the fixed
@@ -338,8 +338,11 @@ and ult, and a clean differential log. **Met** (2026-10-10).
   * ☑ Its own icon and version resource (`ss-delta.rc`: a plain delta, no
     game artwork). The window shows the game's `icon0.png` from the
     player's installed copy.
-  * ☐ A self-contained folder: the exe, `data/`, `shaders-builtin/`, the
-    runtime DLLs and the locally built `ssd_aot_*.dll`, without Qt.
+  * ☑ A self-contained folder, `tools/make-dist.ps1` → `dist/ss-delta-<commit>/`
+    (187 MB). It holds the exe, 8 DLLs (OpenSSL, FFmpeg, Discord's SDK,
+    which Vita3K's libraries link), `data/`, `shaders-builtin/`, `icons/`,
+    the locally built `ssd_aot_*.dll`, `ss-delta.ini` and a README. No Qt.
+    The field runs at 30 fps from it.
 * ☑ **libult**: the recompiled libult runs on the SceFiber HLE, with
   escapes and resume points at fiber switches ([D9](decisions.md)). Host
   fibers were tried and dropped.

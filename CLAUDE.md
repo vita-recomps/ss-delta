@@ -59,7 +59,8 @@ conventions.
   `ss-delta.ini` there (set `vita_fs` and `recompiled` for this machine)
   and logs to `ss-delta/vita3k.log`. Drive it with
   `python -I tools/v3kdrive.py <bin dir> start`, then `run`/`close` as for
-  Vita3K.
+  Vita3K. `tools/make-dist.ps1 [-VitaFs <fs>]` lays out a self-contained
+  folder in `dist/` (ignored; it holds the game-derived `ssd_aot_*.dll`).
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).

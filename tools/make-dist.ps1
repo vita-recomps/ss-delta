@@ -1,0 +1,62 @@
+# Lay out a self-contained ss-delta folder: dist\ss-delta-<commit>\ with ss-delta.exe, the DLLs it
+# needs, its data, the recompiled modules (built locally from the player's own dump, never shared)
+# and a commented ss-delta.ini. Nothing here is committed (dist/ is ignored).
+#   .\tools\make-dist.ps1 [-VitaFs C:\path\to\fs] [-Name ss-delta-test] [-NoRecompiled]
+param(
+    [string]$VitaFs = '',
+    [string]$Name = '',
+    [switch]$NoRecompiled
+)
+$ErrorActionPreference = 'Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$bin = Join-Path $root 'build\vita3k\bin\RelWithDebInfo'
+if (-not (Test-Path "$bin\ss-delta.exe")) { throw "build ss-delta.exe first (tools\build-vita3k.ps1)" }
+if (-not $Name) { $Name = 'ss-delta-' + (git -C $root rev-parse --short HEAD).Trim() }
+$out = Join-Path $root "dist\$Name"
+New-Item -ItemType Directory -Force $out | Out-Null
+
+# the executable and the DLLs it loads (Windows and the VC++ runtime are the player's)
+Copy-Item "$bin\ss-delta.exe" $out -Force
+$dlls = @('discord_game_sdk.dll', 'libssl-4-x64.dll', 'libcrypto-4-x64.dll') +
+    (Get-ChildItem $bin -Filter 'av*.dll' | ForEach-Object Name) +
+    (Get-ChildItem $bin -Filter 'sw*.dll' | ForEach-Object Name)
+foreach ($d in $dlls) { if (Test-Path "$bin\$d") { Copy-Item "$bin\$d" $out -Force } }
+
+# static assets Vita3K reads next to the executable
+foreach ($dir in 'data', 'shaders-builtin', 'icons') {
+    if (Test-Path "$bin\$dir") { Copy-Item "$bin\$dir" $out -Recurse -Force }
+}
+
+# the recompiled modules
+if (-not $NoRecompiled) {
+    $mods = Get-ChildItem (Join-Path $root 'build\recomp') -Filter 'ssd_aot_*.dll'
+    if (-not $mods) { Write-Warning 'no ssd_aot_*.dll in build\recomp: everything will run on the JIT' }
+    $mods | Copy-Item -Destination $out -Force
+}
+
+# ss-delta.ini: the default ss-delta.exe writes (from ss-delta/settings.cpp), with vita_fs set
+$ini = Join-Path $out 'ss-delta.ini'
+if (-not (Test-Path $ini)) {
+    $src = Join-Path $root 'third_party\vita3k\vita3k\ss-delta\settings.cpp'
+    python -I (Join-Path $PSScriptRoot 'ssdelta_ini.py') $src $ini $VitaFs
+    if ($LASTEXITCODE) { throw 'writing ss-delta.ini failed' }
+}
+
+@"
+ss-delta: Soul Sacrifice Delta (PCSA00152, 1.30) on PC.
+
+ss-delta.exe runs the game installed in a Vita file system ([paths] vita_fs in
+ss-delta.ini; default: the fs folder next to this file), with the game's code
+recompiled to native code (ssd_aot_*.dll, built from your own dump).
+
+Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
+Alt+Enter while playing), filter, volume, keyboard and gamepad bindings. The
+mouse is the touchscreen: left button front, right button rear.
+
+ss-delta is built from Vita3K (https://github.com/Vita3K/Vita3K) and is under
+the GNU GPL version 2. The ssd_aot_*.dll files and the game files are derived
+from your own copy of the game: do not share them.
+"@ | Set-Content -Encoding utf8 (Join-Path $out 'README.txt')
+
+$size = (Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+"{0}: {1:N0} MB" -f $out, $size
