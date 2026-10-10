@@ -694,10 +694,27 @@ defaults them on.
   don't apply cleanly to upstream anyway, because they build on earlier
   Plus refactors.
 
+## Ground shimmer in motion, ST17C (2026-10-10)
+
+Seen by the user during the Phase 5 quest sweep, in our build with all
+four modules native (`SSD_AOT`). Stage Select index 330 (`testg010`, map
+ST17C "Deciding Grounds", boss Dionaea) is a dragon arena. Its ground
+looked glitchy and shimmered with grain while the camera moved, and looked
+fine while it was still. The boss killed the idle player within the 75 s
+run, so the run's screenshot shows the menu.
+
+* Not compared with hardware yet. It may be the game's own look.
+* **Hypothesis:** a rendering difference (texture filtering, mip
+  selection or dithering), not recompilation. The differential check in
+  that run found no mismatch in 3,143 calls. A JIT-only run of the same
+  quest would settle it.
+* Belongs to Phase 7 (rendering correctness).
+
 ## Not measured yet
 
-* Real button input: title → save creation → hub → quest. This needs
-  focus-stealing input or a virtual pad.
+* Real button input through the whole game: title → save creation → hub
+  → quest. The fork's input pipe (patch 0005) drives menus without focus;
+  Stage Select starts any quest (`BootSequence Quest Select`).
 * Audio. It was muted for the runs.
 * Higher resolution multipliers, and `high-accuracy: true`.
 * Per-thread CPU time.

@@ -295,17 +295,24 @@ Design: [D7](decisions.md). Details and numbers:
   * Must match ARM semantics: flush-to-zero and default NaN where FPSCR says
     so, saturation, and `vrecpe`/`vrsqrte` estimate tables bit-exact.
   * Unit tests against dynarmic, per op.
-* ☐ The 27–29 ARM-mode functions.
-* ◐ Recompile `libc`, `libfios2` and `libult` with the same tool. They are
-  generated at the load addresses Vita3K picks ([D8](decisions.md)); libc
-  and libfios2 run natively. ☐ libult stalls natively (fiber switches drop
-  native frames): it stays on the JIT until then, or until Phase 6 moves it
-  to host fibers.
-* ☐ Differential runs through quests via the debug Stage Select (561 quests,
-  all reachable through `BootSequence Quest Select`).
+* ☑ The eboot's 28 ARM-mode functions. All ARM leaf functions are in the
+  tests.
+* ☑ Recompile `libc`, `libfios2` and `libult` with the same tool. They are
+  generated at the load addresses Vita3K picks ([D8](decisions.md)) and all
+  run natively. libult's fiber switches escape and resume natively at
+  resume points ([D9](decisions.md)).
+* ☑ Differential runs through quests via the debug Stage Select (581
+  entries, `BootSequence Quest Select`, buttons through the fork's input
+  pipe). A sweep of 20 quests (every 30th entry, 75 s each, `SSD_AOT_DIFF=64`)
+  found **0 mismatches** in 83,656 checked calls and **0 JIT instructions
+  inside the four modules**, at 29.5 fps
+  ([05-recompiler](05-recompiler.md#coverage-130)).
+* ☐ A full quest played to the end. It needs a player: scripted button
+  presses don't win fights.
 
 **Exit:** a full quest with **zero dynarmic entries** in `efg`, libc, fios2
-and ult, and a clean differential log.
+and ult, and a clean differential log. Met for every quest start in the
+sweep; the full playthrough is still open.
 
 ## Phase 6 — Standalone runtime (L) ☐
 

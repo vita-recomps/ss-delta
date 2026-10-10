@@ -278,3 +278,42 @@ and PC-relative loads.
 * A position-independent alternative (adding a module base at run time) is
   still possible if the addresses turn out to vary.
 
+
+## D9 — Fiber switches stay context swaps; native code re-enters at resume points (accepted, 2026-10-10)
+
+**Context:** libult (the game's user-level threads) switches fibers through
+SceFiber. Native code reaches a switch as a host call. Swapping the CPU
+context under it abandons the native frames, and the rest of each frame
+ran on the JIT. Worker loops never return, so they stayed there.
+
+**Decision:**
+
+* With `SSD_AOT` the fork uses its SceFiber HLE and does not load
+  libfiber. A switch is a context swap in an import. `call_import` sees a
+  different pc, sp or lr and escapes to where the other fiber was
+  suspended.
+* Generated functions have **resume points**: every call's return address
+  is also an entry (`GuestContext::resume`, ABI v2). When the JIT reaches
+  one, because a frame whose callee escaped returns to it, the function
+  continues natively from there. A switched-back fiber therefore runs
+  natively again after one boundary per frame.
+* Branches to another recompiled function's entry are tail calls, not
+  escapes.
+
+**Rejected:** a host fiber per guest fiber (native frames survive the
+switch). ULT moves fibers between worker threads, and a host fiber's
+frames point at the CPU of the thread that created it. The experiment is
+kept on the fork branch `host-fibers-experiment`.
+
+**Consequences:**
+
+* All four modules run natively with no JIT instructions inside them in
+  title, field, arena and quest runs. The JIT is left with firmware LLE
+  code ([05-recompiler](05-recompiler.md#coverage-130)).
+* Each fiber switch costs an escape (a C++ exception) and one boundary
+  per resumed frame, about 12,000 a minute in the field at 29.6 fps.
+* libult's load address depends on libfiber not being loaded
+  (`80451000`, [D8](#d8--relocatable-modules-are-generated-for-vita3ks-load-addresses-accepted-2026-10-10)).
+* Phase 6 does not need host fibers for libult. A standalone runtime can
+  keep the same scheme without dynarmic only if every escape target is a
+  resume point or a function entry.

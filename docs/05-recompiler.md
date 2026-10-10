@@ -49,9 +49,9 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
   Generated code decodes their immediates from guest memory at run time
   (`thumb_mov_imm16`), and the code hash skips them.
 * **Flags:** a backward liveness pass over the instruction graph drops
-  flag writes that no path reads. Calls kill the flags (AAPCS); escapes to
-  the fallback CPU keep all of them live. In the eboot this drops 1,703,841
-  of the flag writes.
+  flag writes that no path reads. Calls and tail calls kill the flags
+  (AAPCS); escapes to the fallback CPU, including branches out of the
+  function, keep all of them live.
 * **Control flow:**
   * branches inside the function become `goto`;
   * `tbb`/`tbh` become `switch`;
@@ -60,13 +60,23 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
   * `bl`/`blx #imm` to a recompiled function becomes a direct call
     (`RECOMP_CALL`). A `RECOMP_BISECT` build routes these calls through
     `call_indirect` instead, so the runtime chooses per function;
-  * a call to a function that isn't recompiled (NEON, ARM mode) or through a
-    register goes to `call_indirect`;
-  * a call to an import stub goes to `call_import`.
+  * a call to a function that isn't recompiled or through a register goes
+    to `call_indirect`;
+  * a call to an import stub goes to `call_import`;
+  * a branch to another recompiled function's entry (a tail call, e.g.
+    libc's `bhs memcpy`) becomes a call followed by `return`. The callee
+    returns to this function's caller.
 * **Return protocol:** a function sets `ctx->r[15]` to the address it
   returns to and returns. Each call site checks that `r15` is its own return
   address; if it isn't, it calls `escape`, which continues on the fallback
   CPU and never comes back.
+* **Resume points:** the return address of every call outside an `IT`
+  block is also an entry. With `ctx->resume` set to it, the function starts
+  there, which works because all guest state is in `ctx` between
+  instructions. After an escape (a fiber switch), the frames above it
+  return into code the JIT would otherwise run. The fork enters them
+  natively instead (eboot 229,066 resume points, libc 5,193, libfios2
+  3,492, libult 1,210).
 * **VFP:** host IEEE arithmetic. Vita3K threads run with FPSCR = 0
   (round to nearest, no flush-to-zero, no default-NaN mode), so FPSCR's mode
   bits are stored but don't change the generated code. ARM's NaN rules are
@@ -88,17 +98,17 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
 
 ## Coverage (1.30)
 
-Native code covers every Thumb function, NEON included (see
-[NEON](#neon)). The eboot's 28 ARM-mode functions still go to the fallback
-CPU through `call_indirect`.
+Native code covers every function of the four modules: Thumb, NEON (see
+[NEON](#neon)) and the eboot's 28 ARM-mode functions.
 
 | | eboot | libc | libfios2 | libult |
 |---|---|---|---|---|
-| functions recompiled | 33,933 | 1,535 | 567 | 157 |
-| left to dynarmic: ARM mode | 28 | 0 | 0 | 0 |
-| instructions recompiled | 3,725,325 | 82,028 | 47,681 | 21,303 |
+| functions recompiled | 33,961 | 1,535 | 567 | 157 |
+| of them ARM mode | 28 | 0 | 0 | 0 |
+| instructions recompiled | 3,730,927 | 82,028 | 47,681 | 21,303 |
 | unsupported instructions | 0 | 0 | 0 | 0 |
-| flag writes dropped | 2,481,100 | 67,257 | 37,832 | 14,111 |
+| flag writes dropped | 2,481,465 | 67,257 | 37,832 | 14,111 |
+| resume points | 229,066 | 5,193 | 3,492 | 1,210 |
 | buckets | 175 | 4 | 3 | 1 |
 
 **Relocatable modules** (libc, libfios2, libult) are generated for the
@@ -107,8 +117,12 @@ address Vita3K loads their code segment at ([D8](decisions.md)):
 ```
 python -I recomp/recompile.py extracted/elf/libc.elf generated/libc --load-base 8031e000
 python -I recomp/recompile.py extracted/elf/libfios2.elf generated/libfios2 --load-base 8036f000
-python -I recomp/recompile.py extracted/elf/libult.elf generated/libult --load-base 80454000
+python -I recomp/recompile.py extracted/elf/libult.elf generated/libult --load-base 80451000
 ```
+
+libult's address depends on libfiber: with `SSD_AOT` the fork uses the
+SceFiber HLE and does not load libfiber, and libult moves down from
+`80454000` to `80451000`.
 
 * The front end decodes the code at those addresses, so branch targets,
   return addresses and PC-relative loads are runtime values.
@@ -123,28 +137,51 @@ python -I recomp/recompile.py extracted/elf/libult.elf generated/libult --load-b
   export (`movw/movt r12; bx r12`) go straight to the native export
   (patch 0009).
 
-| Natively (`SSD_AOT`) | Title | `ELDER DEFAULT MAP` | fps |
-|---|---|---|---|
-| eboot | 54% | 71% | 29.6 |
-| eboot + libc | 80.4% | — | 29.5 |
-| **eboot + libc + libfios2** | **80.3%** | **91.7%** | 29.5 |
-| eboot + libult | stalls (counters stop) | — | 22.7 |
-| all four | 96.8% of very little | — | 8–11 |
+**ARM mode** is translated like Thumb, with the condition of every
+instruction in place of `IT`, ARM's shifted-register operands, and
+`ldr`/`str` post-indexing. The tests cover all ARM leaf functions.
 
-**libult stays on the JIT.** It is the game's user-level threading library,
-built on SceFiber. Its fiber switches go through HLE calls that swap the CPU
-context, which abandons native frames on every switch, and the scheduler
-stalls. Phase 6 plans libult on host fibers anyway.
+**Fiber switches** (libult) go through the SceFiber HLE. Native code calls
+the import, the HLE swaps the CPU context, and `call_import` sees a
+different pc, sp or lr. It escapes there: the other fiber was suspended in
+the same import, so it continues at its caller's resume point, natively. The
+frames of the fiber that switched away stay valid in guest memory; when it is
+switched back to, its import returns into the resume point after the call.
+Host fibers (one host stack per guest fiber) are the alternative. They were
+tried and dropped: ULT moves fibers between worker threads, and a host
+fiber's frames belong to the CPU of the thread that created it (fork branch
+`host-fibers-experiment`).
 
-Remaining JIT work, called from native code:
+**Results** (1.30, Radeon 760M, 60 s runs, `SSD_AOT_COUNT`, 2026-10-10):
 
-* the eboot's ARM-mode functions (`81a1be08`, `81a1cd48`, `81a20000`,
-  `81a1d600`, `81a1c940`, `81a20590`, `81a1f9e8`);
-* libult (`sceUltQueuePop`/`Push`).
+| Natively (`SSD_AOT`) | Title | `ELDER DEFAULT MAP` | `[G] HarpyBattle Walhalla` | fps |
+|---|---|---|---|---|
+| eboot | 54% | 71% | — | 29.6 |
+| eboot + libc + libfios2 | 80.3% | 91.7% | — | 29.5 |
+| **all four, with resume points and tail calls** | **100.0%** | **99.9%** | **99.9%** | **29.6** |
 
-There are also about 10,000 escapes per minute into libc's `memcpy`
-(`80331d71`; `0x81013d70` in the ELF, the function whose exidx mode bit is
-wrong).
+Shares are of guest instructions over the last 5 s. In the last row, no JIT
+instruction runs inside the four modules ("JIT inside native modules: 0" in
+the counters). What the JIT still runs is firmware LLE code, reached
+through import stubs such as `81b27dec`, and code at `80001000` and
+`8031996c`, which is outside the four modules (**hypothesis:** Vita3K's
+own stubs and a firmware module). The only escapes are libult's fiber
+switches, about 12,000 a minute in the field, and each continues natively
+at a resume point.
+
+**Quest sweep.** Stage Select (`BootSequence Quest Select`) lists 581
+entries. A sweep started every 30th one: down ×6, then R+right (+10) and
+right (+1) through the fork's input pipe, circle, then 75 s in the quest
+with `SSD_AOT_DIFF=64`. All 20 ran at 29.5 fps, with 83,656 calls checked,
+**0 mismatching**, and 0 JIT instructions inside the four modules. Most
+sampled entries are callbacks that make HLE calls (about 470,000 skipped),
+because the JIT now enters native code rarely.
+
+Before resume points, a fiber that resumed after an escape finished its
+frames on the JIT. Worker loops never return, so they stayed there: 13 M
+JIT instructions a minute on the title screen, against 0.8 M with resume
+points. libc's `memcpy` tail branch (`80331df0: bhs 80331d70`) escaped about
+10,000 times a minute; it is now a tail call.
 
 ### NEON
 
@@ -276,6 +313,8 @@ differential mode). These are patches 0007 and 0008.
 | `SSD_AOT_TRACE=<N>` | log the first N native calls with their registers |
 | `SSD_AOT_DUMP=<file>` | write the module's code as guest memory holds it at verification |
 | `SSD_TRACE_IMPORTS=<file>` | every HLE call with arguments and result, flushed per line |
+| `SSD_AOT_RESUME=0` | don't enter functions at resume points: frames resumed after an escape finish on the JIT |
+| `SSD_HLE_FIBER=1` | use the SceFiber HLE instead of libfiber without `SSD_AOT` too (to compare on the JIT) |
 
 Differential mode is not free of side effects. Undoing the shadow's writes
 can roll back a value another thread changed in between. At
@@ -335,3 +374,22 @@ There are about 18 M native→JIT calls in a 60 s field run, from boot onward.
   * A spinlock-protected allocator (`818953d6`) gave false mismatches when
     another thread allocated between the shadow run and the native run, so
     calls that store exclusively are skipped.
+  * libult's lock-free queue (`8045b51c`) gave the same kind of mismatch
+    from exclusive *loads* alone (`ldrexd` of a 64-bit counter, no store on
+    that path). Calls that access memory exclusively at all are skipped
+    now. The shadow monitor's reservation slot is tagged before the run and
+    checked after it.
+  * `817ec3c8` (a per-frame statistics block) mismatches about once per
+    run in one of five stored ratios. The other four match, so its input,
+    a 64-bit counter another thread updates, changed between the two runs.
+    This is a race, not a translation error.
+* **Fiber switches** (`sceFiberSwitch` from native libult): when the
+  target fiber was suspended in the same import, pc after the HLE call is
+  the same stub, and native code carried on with the other fiber's
+  registers. libult then failed its own assertion (`Ulthread.h:402`). The
+  check now also compares sp and lr.
+* **Memory:** decoding the whole eboot with Capstone details took over
+  6 GB (about 1.7 KB per instruction), and `make_tests.py` passed 8 GB. That
+  is a likely cause of the machine hang during the ARM-mode tests. The
+  front end now decodes per function on first use, and the generators
+  release each function after use (peak 750 MB for the eboot tests).

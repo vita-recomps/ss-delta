@@ -1,0 +1,310 @@
+From cb6f27d24e0305fc5bb34eeb0500136f792f5b0a Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 16:22:35 +0200
+Subject: [PATCH 10/12] cpu: resume points, ARM-mode entries and fiber switches
+ for recompiled code
+
+- Native entries are looked up with the Thumb bit of the current mode, so
+  ARM-mode functions run natively too.
+- An HLE import that switches contexts (SceFiber) is detected by pc, mode,
+  sp and lr: the other context may be suspended in the same import. A
+  context resumed at its stub's `mov pc, lr` returns directly.
+- ABI v2: modules list resume points, the return address of every call.
+  When the JIT reaches one (a frame whose callee escaped returns to it),
+  the containing function runs natively from there (GuestContext::resume).
+  SSD_AOT_RESUME=0 turns this off.
+- Differential mode skips calls that access memory exclusively at all, not
+  only those that store exclusively: exclusive loads read what other
+  threads change between the shadow run and the native one.
+- A guest breakpoint instruction is logged with its address and thread.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/include/cpu/aot.h     |  3 ++
+ vita3k/cpu/include/cpu/aot_abi.h | 15 +++++++++-
+ vita3k/cpu/src/aot.cpp           | 50 ++++++++++++++++++++++++++------
+ vita3k/cpu/src/dynarmic_cpu.cpp  | 40 ++++++++++++++++++++-----
+ 4 files changed, 91 insertions(+), 17 deletions(-)
+
+diff --git a/vita3k/cpu/include/cpu/aot.h b/vita3k/cpu/include/cpu/aot.h
+index 01be2742..ca56840f 100644
+--- a/vita3k/cpu/include/cpu/aot.h
++++ b/vita3k/cpu/include/cpu/aot.h
+@@ -45,6 +45,9 @@ Address aot_sentinel();
+ // The native function for a guest entry address (bit 0 set for Thumb), or null. A module's
+ // functions become visible once its code has been checked against guest memory.
+ AotFn aot_lookup(uint32_t addr);
++// the function containing a resume point (aot_abi.h AotResume), to call with GuestContext::resume set
++AotFn aot_lookup_resume(uint32_t addr);
++void aot_count_resume_entry();
+ 
+ // Counters, logged every 10 s while native code runs and at deinit:
+ // JIT -> native entries, native -> JIT calls (call_indirect, LLE import stubs), native -> HLE
+diff --git a/vita3k/cpu/include/cpu/aot_abi.h b/vita3k/cpu/include/cpu/aot_abi.h
+index bc11f636..141705ad 100644
+--- a/vita3k/cpu/include/cpu/aot_abi.h
++++ b/vita3k/cpu/include/cpu/aot_abi.h
+@@ -7,7 +7,7 @@
+ 
+ namespace armrecomp {
+ 
+-constexpr uint32_t AOT_ABI_VERSION = 1;
++constexpr uint32_t AOT_ABI_VERSION = 2;
+ 
+ struct GuestContext {
+     uint32_t r[16]; // r15 holds the address of the last branch target written by generated code
+@@ -28,6 +28,10 @@ struct GuestContext {
+     uint64_t excl_value;
+     void *embedder; // opaque pointer for the embedder
+     uint64_t insns; // guest instructions run natively, counted by modules built with RECOMP_COUNT_INSNS
++    // nonzero: the next function called starts at this resume point (AotResume) instead of its
++    // entry, and clears it
++    uint32_t resume;
++    uint32_t reserved;
+ };
+ 
+ // Provided by the runtime. The hooks have the semantics documented in armrecomp.h; escape and
+@@ -48,6 +52,13 @@ struct AotFunction {
+     void (*fn)(GuestContext *ctx);
+ };
+ 
++// A call's return address inside a function, where the function can also start (ctx->resume)
++struct AotResume {
++    uint32_t addr; // bit 0 set for Thumb
++    uint32_t function; // entry address of the function, bit 0 set for Thumb
++    void (*fn)(GuestContext *ctx);
++};
++
+ // Provided by the module.
+ struct AotModule {
+     uint32_t abi_version;
+@@ -63,6 +74,8 @@ struct AotModule {
+     // immediates from guest memory
+     const uint32_t *patched;
+     uint32_t patched_count;
++    const AotResume *resumes; // sorted by address
++    uint32_t resume_count;
+ };
+ 
+ // The module DLL exports `extern "C" const AotModule *armrecomp_aot_init(const AotHost *)`. It
+diff --git a/vita3k/cpu/src/aot.cpp b/vita3k/cpu/src/aot.cpp
+index 0b9e9717..e002bf2c 100644
+--- a/vita3k/cpu/src/aot.cpp
++++ b/vita3k/cpu/src/aot.cpp
+@@ -60,6 +60,8 @@ struct Registry {
+     std::vector<std::unique_ptr<LoadedModule>> modules;
+     // entry address (bit 0 = Thumb) -> function and its module; immutable after loading
+     std::unordered_map<uint32_t, std::pair<AotFn, LoadedModule *>> functions;
++    // resume point (bit 0 = Thumb) -> its function and module (aot_abi.h AotResume)
++    std::unordered_map<uint32_t, std::pair<AotFn, LoadedModule *>> resumes;
+     MemState *mem = nullptr;
+     Address sentinel = 0;
+     bool enabled = false;
+@@ -68,7 +70,7 @@ struct Registry {
+ 
+ Registry registry;
+ 
+-std::atomic<uint64_t> native_entries{ 0 }, guest_calls{ 0 }, import_calls{ 0 }, escapes{ 0 };
++std::atomic<uint64_t> native_entries{ 0 }, resume_entries{ 0 }, guest_calls{ 0 }, import_calls{ 0 }, escapes{ 0 };
+ std::atomic<uint64_t> native_insns{ 0 }, jit_insns{ 0 };
+ std::atomic<int64_t> next_log{ 0 };
+ std::mutex escape_mutex;
+@@ -181,6 +183,7 @@ void aot_init(MemState &mem, Address sentinel) {
+     std::call_once(loaded, load_modules);
+     registry.enabled = false;
+     registry.functions.clear();
++    registry.resumes.clear();
+     if (registry.modules.empty())
+         return;
+     if (mem.use_page_table) {
+@@ -227,6 +230,18 @@ void aot_init(MemState &mem, Address sentinel) {
+             registry.functions.emplace(mod.functions[i].addr, std::make_pair(mod.functions[i].fn, m.get()));
+             registered++;
+         }
++        // SSD_AOT_RESUME=0: frames the JIT took over after an escape stay on the JIT
++        static const bool use_resumes = [] {
++            const char *const env = std::getenv("SSD_AOT_RESUME");
++            return !env || std::string(env) != "0";
++        }();
++        for (uint32_t i = 0; use_resumes && i < mod.resume_count; i++) {
++            const armrecomp::AotResume &r = mod.resumes[i];
++            const uint32_t a = r.function & ~1u;
++            if (!ranges.empty() && std::none_of(ranges.begin(), ranges.end(), [a](const auto &rg) { return rg.first <= a && a < rg.second; }))
++                continue;
++            registry.resumes.emplace(r.addr, std::make_pair(r.fn, m.get()));
++        }
+         if (!ranges.empty())
+             LOG_INFO("AOT: SSD_AOT_RANGE leaves {} of {} functions native", registered, mod.function_count);
+         m->lo = mod.function_count ? mod.functions[0].addr & ~1u : 0;
+@@ -241,6 +256,7 @@ void aot_deinit() {
+         LOG_INFO("AOT: {}", aot_counters_text());
+     registry.enabled = false;
+     registry.functions.clear();
++    registry.resumes.clear();
+     registry.mem = nullptr;
+     registry.sentinel = 0;
+ }
+@@ -253,11 +269,11 @@ Address aot_sentinel() {
+     return registry.sentinel;
+ }
+ 
+-AotFn aot_lookup(uint32_t addr) {
+-    const auto it = registry.functions.find(addr);
+-    if (it == registry.functions.end())
+-        return nullptr;
+-    LoadedModule &m = *it->second.second;
++namespace {
++
++// native code once its module matches guest memory
++AotFn checked(const std::pair<AotFn, LoadedModule *> &entry) {
++    LoadedModule &m = *entry.second;
+     Verified v = m.verified.load(std::memory_order_acquire);
+     if (v == Verified::unknown) {
+         const std::lock_guard<std::mutex> lock(m.verify_mutex);
+@@ -267,7 +283,23 @@ AotFn aot_lookup(uint32_t addr) {
+             m.verified = v;
+         }
+     }
+-    return v == Verified::yes ? it->second.first : nullptr;
++    return v == Verified::yes ? entry.first : nullptr;
++}
++
++} // namespace
++
++AotFn aot_lookup(uint32_t addr) {
++    const auto it = registry.functions.find(addr);
++    return it == registry.functions.end() ? nullptr : checked(it->second);
++}
++
++AotFn aot_lookup_resume(uint32_t addr) {
++    const auto it = registry.resumes.find(addr);
++    return it == registry.resumes.end() ? nullptr : checked(it->second);
++}
++
++void aot_count_resume_entry() {
++    resume_entries.fetch_add(1, std::memory_order_relaxed);
+ }
+ 
+ bool aot_count_jit_insns() {
+@@ -347,8 +379,8 @@ void aot_count_escape(uint32_t pc) {
+ }
+ 
+ std::string aot_counters_text() {
+-    std::string out = fmt::format("native entries {}, native->JIT calls {}, native->HLE calls {}, escapes {}",
+-        native_entries.load(), guest_calls.load(), import_calls.load(), escapes.load());
++    std::string out = fmt::format("native entries {} (resumed {}), native->JIT calls {}, native->HLE calls {}, escapes {}",
++        native_entries.load(), resume_entries.load(), guest_calls.load(), import_calls.load(), escapes.load());
+     const uint64_t native = native_insns.load(), jit = jit_insns.load();
+     if (registry.count_jit_insns && native + jit)
+         out += fmt::format("; instructions native {} JIT {} ({:.1f}% native)", native, jit, 100.0 * double(native) / double(native + jit));
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 448b41da..0f276d19 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -26,6 +26,7 @@
+ 
+ #include <dynarmic/frontend/A32/a32_ir_emitter.h>
+ #include <dynarmic/interface/A32/coprocessor.h>
++#include <dynarmic/backend/x64/exclusive_monitor_friend.h>
+ #include <dynarmic/interface/exclusive_monitor.h>
+ #include <dynarmic/ir/terminal.h>
+ 
+@@ -169,7 +170,8 @@ public:
+     bool PreCodeReadHook(bool is_thumb, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
+         if (!aot_enabled())
+             return true;
+-        if (pc != aot_sentinel() && !(is_thumb && aot_lookup(pc | 1)))
++        const uint32_t entry = pc | (is_thumb ? 1u : 0u);
++        if (pc != aot_sentinel() && !aot_lookup(entry) && !aot_lookup_resume(entry))
+             return true;
+         ir.BranchWritePC(ir.Imm32(pc));
+         ir.CallHostFunction(&AotBoundary, ir.Imm64(reinterpret_cast<uint64_t>(cpu)));
+@@ -300,6 +302,7 @@ public:
+     void ExceptionRaised(uint32_t pc, Dynarmic::A32::Exception exception) override {
+         switch (exception) {
+         case Dynarmic::A32::Exception::Breakpoint: {
++            LOG_WARN("ss-delta: breakpoint instruction at {:08x} (thread {})", pc, parent->thread_id);
+             cpu->break_ = true;
+             cpu->jit->HaltExecution();
+             if (cpu->is_thumb_mode())
+@@ -541,6 +544,11 @@ bool DynarmicCPU::aot_diff_shadow(uint32_t pc, AotShadowResult &out) {
+     s.jit->SetFpscr(jit->Fpscr());
+     s.jit->ClearExclusiveState();
+     s.monitor.ClearProcessor(0);
++    // exclusive loads read what other threads change concurrently, like exclusive stores: any
++    // exclusive access (which moves the reservation off this tag) skips the comparison
++    constexpr Dynarmic::VAddr untouched = 0xa07a07a0'00000000ull;
++    Dynarmic::VAddr &reservation = *Dynarmic::GetExclusiveMonitorAddressPointer(&s.monitor, 0);
++    reservation = untouched;
+     s.journal.clear();
+     s.abort_reason = nullptr;
+     s.returned = false;
+@@ -559,6 +567,9 @@ bool DynarmicCPU::aot_diff_shadow(uint32_t pc, AotShadowResult &out) {
+             s.abort(why.c_str());
+         }
+     }
++    if (reservation != untouched)
++        s.abort("atomics");
++    s.monitor.ClearProcessor(0);
+     aot_count_diff_cost(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count(), 20'000'000 - s.ticks_left);
+     uint8_t *const base = parent->mem->memory.get();
+     if (!s.abort_reason) {
+@@ -697,17 +708,27 @@ bool DynarmicCPU::aot_boundary() {
+     const uint32_t pc = jit->Regs()[15];
+     if (pc == aot_sentinel())
+         return true;
+-    const AotFn fn = aot_lookup(pc | 1);
++    const uint32_t entry = pc | (is_thumb_mode() ? 1u : 0u);
++    AotFn fn = aot_lookup(entry);
++    // a resume point: a frame whose callee escaped returns here, and its function continues natively
++    const bool resume = !fn;
++    if (resume)
++        fn = aot_lookup_resume(entry);
+     if (!fn) {
+         LOG_ERROR("AOT: the JIT stopped at {} without native code", log_hex(pc));
+         return false;
+     }
+     aot_count_native_entry();
+-    // differential mode: the shadow JIT runs the call first
++    if (resume)
++        aot_count_resume_entry();
++    // differential mode: the shadow JIT runs the call first (calls only: a resumed frame does not
++    // return to the sentinel)
+     const uint64_t diff_interval = aot_diff_interval();
+     AotShadowResult shadow_result;
+-    const bool diff = diff_interval && ++diff_counter % diff_interval == 0 && aot_diff_shadow(pc, shadow_result);
++    const bool diff = !resume && diff_interval && ++diff_counter % diff_interval == 0 && aot_diff_shadow(pc, shadow_result);
+     aot_sync_to_guest();
++    if (resume)
++        guest.resume = pc;
+     // SSD_AOT_TRACE=N logs the first N native calls (debugging)
+     static const int64_t trace_limit = [] {
+         const char *const env = std::getenv("SSD_AOT_TRACE");
+@@ -809,16 +830,21 @@ void DynarmicCPU::aot_call_import(uint32_t stub) {
+     }
+     // svc #0; mov pc, lr; .word nid: the HLE function, as the run loop would call it
+     aot_count_import_call();
+-    const uint32_t ret = guest.r[14];
++    const uint32_t ret = guest.r[14], sp = guest.r[13];
+     aot_sync_from_guest();
+     set_pc(stub + 4);
+     aot_import(words[2]);
+     aot_sync_to_guest();
+     if (parent->aot_unwind)
+         throw AotUnwind{};
+-    if (get_pc() != stub + 4 || is_thumb_mode()) {
+-        // the HLE function switched contexts (SceFiber): continue there on the JIT
++    if (get_pc() != stub + 4 || is_thumb_mode() || guest.r[13] != sp || guest.r[14] != ret) {
++        // the HLE function switched contexts (SceFiber): continue there on the JIT. The other
++        // context may be suspended in the same import, so pc alone does not show the switch
+         aot_count_escape(stub);
++        // a context suspended in an import resumes at its stub's `mov pc, lr`: return directly,
++        // to land on the caller's resume point
++        if (!is_thumb_mode() && *Ptr<uint32_t>(get_pc()).get(*parent->mem) == 0xe1a0f00e)
++            throw AotEscape{ guest.r[14] };
+         throw AotEscape{ get_pc() | (is_thumb_mode() ? 1u : 0u) };
+     }
+     guest.r[15] = ret;
+-- 
+2.56.0.windows.2
+

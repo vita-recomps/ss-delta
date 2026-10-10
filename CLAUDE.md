@@ -48,9 +48,15 @@ conventions.
   changed shader translation (debug branches, `SSD_DENORM`, ...) leave
   shaders there that break later runs: move the title's folder aside after
   such runs.
-- Recompiled code: build `ssd_aot_eboot.dll` with `recomp/` and set
-  `SSD_AOT` to it before launching the fork (docs/05-recompiler.md lists the
-  other `SSD_AOT_*` switches).
+- Recompiled code: build `ssd_aot_<module>.dll` (eboot, libc, libfios2,
+  libult) with `recomp/` and set `SSD_AOT` to the `;`-separated DLL paths
+  before launching the fork. The libraries are generated at their load
+  addresses (docs/05-recompiler.md, which also lists the other `SSD_AOT_*`
+  switches). A regenerated module that changes `aot_abi.h` needs a fork
+  rebuild.
+- `recomp/run-tests.ps1` runs the test binaries under a memory and time
+  ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
+  too: a runaway test once hung the machine (14 GB RAM).
 - NID names: vitasdk `vita-headers` db in `third_party/vita-headers/db/360`
   (pinned commit in `PINNED_COMMIT`, not committed). The code inventory is
   regenerated with `tools/inventory.py` into `generated/inventory/`.
