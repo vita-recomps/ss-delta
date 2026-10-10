@@ -316,16 +316,23 @@ Design: [D7](decisions.md). Details and numbers:
 and ult, and a clean differential log. Met for every quest start in the
 sweep; the full playthrough is still open.
 
-## Phase 6 — Standalone runtime (L) ☐
+## Phase 6 — Standalone runtime (L) ◐
 
-* ☐ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
+* ◐ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
   config, and its own `ss-delta.ini` (like `decimation.ini`).
-  * Starting point: upstream's SDL front end (`Vita3K --frontend sdl -r
-    PCSA00152`) already runs the game in a plain SDL window. With all four
-    modules native it reached the field at 99.9% native (2026-10-10). Its
-    window title has no fps, so `v3kdrive` doesn't find it yet.
-* ☐ **libult** on host fibers behind its 13 imports (or keep the recompiled
-  libult on top of a native `SceFiber`).
+  * ☑ `ss-delta.exe`, a target in the fork ([D10](decisions.md)), on
+    upstream's SDL front end. It boots PCSA00152 directly with the fixed
+    settings and `ss-delta.ini` (paths, scale, window, fullscreen with
+    F11/Alt+Enter, vsync, filter, volume, recompiled modules, logging). The
+    field runs at 29–30 fps, 99.9% native, and `v3kdrive start` drives it
+    (fps title, input pipe, screenshots).
+  * ☐ Keyboard and gamepad bindings in `ss-delta.ini`.
+  * ☐ Its own name, icon and version resource (it reuses `Vita3K.rc`).
+  * ☐ A self-contained folder: the exe, `data/`, `shaders-builtin/`, the
+    runtime DLLs and the locally built `ssd_aot_*.dll`, without Qt.
+* ☑ **libult**: the recompiled libult runs on the SceFiber HLE, with
+  escapes and resume points at fiber switches ([D9](decisions.md)). Host
+  fibers were tried and dropped.
 * ☐ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
   return clean "offline" results. No `sceNpAuthInit` dialogs.
 * ☐ **Firmware LLE modules.**

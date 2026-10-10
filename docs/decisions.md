@@ -317,3 +317,35 @@ kept on the fork branch `host-fibers-experiment`.
 * Phase 6 does not need host fibers for libult. A standalone runtime can
   keep the same scheme without dynarmic only if every escape target is a
   resume point or a function entry.
+
+## D10 — `ss-delta.exe` is a target in the Vita3K fork (accepted, 2026-10-10)
+
+**Context:** Phase 6 needs a single-game executable without Vita3K's Qt
+interface. Upstream's SDL front end (`--frontend sdl -r`) already runs the
+game in a plain window, natively at 99.9%.
+
+**Decision** (the user's choice): build `ss-delta.exe` as a second
+executable in the fork, `vita3k/ss-delta/`, beside `Vita3K.exe`, reusing
+its libraries and leaving out `gui-qt`.
+
+* Settings the game needs are fixed in code: Vulkan, `high-accuracy`,
+  surface sync on, `memory-mapping: double-buffer` (D4 update 4).
+* The player's choices are in `ss-delta.ini` next to the exe, like
+  `decimation.ini`. It is written with comments on first start.
+* Recompiled modules (`ssd_aot_*.dll`) are loaded from a configured folder
+  unless `SSD_AOT` is set. The DLLs are generated locally and never
+  shipped (D2).
+* Config and log go in `ss-delta/` next to the exe. The shader cache is
+  shared with `Vita3K.exe`.
+
+**Rejected:** a separate runtime that copies only the pieces it needs. It
+would fork the HLE, renderer and loader away from the code the
+differential checks and Vita3K comparisons run against.
+
+**Consequences:**
+
+* `ss-delta.exe` is built from Vita3K's code, so it is under Vita3K's
+  GPLv2.
+* It stays in step with the fork: every fix applies to both executables.
+* Vita3K's other subsystems (app list, users, config types) come along.
+  The exe hides them instead of removing them.

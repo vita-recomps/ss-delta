@@ -54,6 +54,12 @@ conventions.
   addresses (docs/05-recompiler.md, which also lists the other `SSD_AOT_*`
   switches). A regenerated module that changes `aot_abi.h` needs a fork
   rebuild.
+- `ss-delta.exe` (Phase 6, [D10](docs/decisions.md)) is built next to
+  `Vita3K.exe` in `build/vita3k/bin/RelWithDebInfo/`. It reads
+  `ss-delta.ini` there (set `vita_fs` and `recompiled` for this machine)
+  and logs to `ss-delta/vita3k.log`. Drive it with
+  `python -I tools/v3kdrive.py <bin dir> start`, then `run`/`close` as for
+  Vita3K.
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).
