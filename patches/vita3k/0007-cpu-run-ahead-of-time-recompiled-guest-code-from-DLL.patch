@@ -1,0 +1,1386 @@
+From cc882a7b1dc8c509f6e7bbc9d3cc30795a937d5c Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 11:34:44 +0200
+Subject: [PATCH 7/8] cpu: run ahead-of-time recompiled guest code from DLLs
+ (SSD_AOT)
+
+Modules recompiled to C++ by ss-delta's recomp/ and built as DLLs are
+loaded from SSD_AOT (';'-separated paths) and checked against guest
+memory with a code hash (the words the loader patches for variable
+imports excluded). The JIT ends every block that reaches a recompiled
+function's entry (PreCodeReadHook) and halts with UserDefined7;
+DynarmicCPU::run copies the registers into the native context, calls the
+function and continues where it returned.
+
+Native code calls back through four hooks: call_indirect (native target,
+or a nested JIT loop with lr set to a sentinel block), call_import (HLE
+directly for svc stubs, the JIT for anything else), escape and
+unsupported (a C++ exception caught at the innermost boundary; the JIT
+continues there). A thread that exits while native frames are on its
+stack unwinds them (CPUState::aot_unwind). HLE calls made inside run()
+keep the caller's halted/break_ state (guest callbacks end on WFI).
+Guest threads get 64 MiB host stacks while AOT is enabled.
+
+Debugging and measurement: SSD_AOT_COUNT=1 (instruction counts on both
+sides, JIT profile by entry), SSD_AOT_STATS=<file>, SSD_AOT_RANGE (which
+functions run natively), SSD_AOT_TRACE=N, SSD_AOT_DUMP=<file>, and
+SSD_AOT_DIFF=N, a differential mode that runs every Nth native call on a
+shadow JIT first (journaled writes, undone) and compares registers and
+memory.
+
+Without SSD_AOT nothing changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/CMakeLists.txt                  |   4 +
+ vita3k/cpu/include/cpu/aot.h               |  69 +++
+ vita3k/cpu/include/cpu/aot_abi.h           |  74 ++++
+ vita3k/cpu/include/cpu/impl/aot_hooks.h    |  29 ++
+ vita3k/cpu/include/cpu/impl/dynarmic_cpu.h |  22 +
+ vita3k/cpu/include/cpu/state.h             |   7 +
+ vita3k/cpu/src/aot.cpp                     | 389 +++++++++++++++++
+ vita3k/cpu/src/dynarmic_cpu.cpp            | 477 ++++++++++++++++++++-
+ vita3k/kernel/include/kernel/state.h       |   3 +
+ vita3k/kernel/src/kernel.cpp               |  22 +-
+ vita3k/kernel/src/thread.cpp               |   9 +
+ 11 files changed, 1098 insertions(+), 7 deletions(-)
+ create mode 100644 vita3k/cpu/include/cpu/aot.h
+ create mode 100644 vita3k/cpu/include/cpu/aot_abi.h
+ create mode 100644 vita3k/cpu/include/cpu/impl/aot_hooks.h
+ create mode 100644 vita3k/cpu/src/aot.cpp
+
+diff --git a/vita3k/cpu/CMakeLists.txt b/vita3k/cpu/CMakeLists.txt
+index ac23b7e1..c8ee2ec0 100644
+--- a/vita3k/cpu/CMakeLists.txt
++++ b/vita3k/cpu/CMakeLists.txt
+@@ -1,12 +1,16 @@
+ set(SOURCE_LIST
+ include/cpu/state.h
++include/cpu/aot.h
++include/cpu/aot_abi.h
+ include/cpu/common.h
+ include/cpu/functions.h
++include/cpu/impl/aot_hooks.h
+ include/cpu/impl/dynarmic_cpu.h
+ include/cpu/impl/interface.h
+ include/cpu/disasm/functions.h
+ include/cpu/disasm/state.h
+ 
++src/aot.cpp
+ src/disasm.cpp
+ src/cpu.cpp
+ src/dynarmic_cpu.cpp
+diff --git a/vita3k/cpu/include/cpu/aot.h b/vita3k/cpu/include/cpu/aot.h
+new file mode 100644
+index 00000000..01be2742
+--- /dev/null
++++ b/vita3k/cpu/include/cpu/aot.h
+@@ -0,0 +1,69 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// Ahead-of-time recompiled guest code (ss-delta). Modules recompiled to C++ and built as DLLs
++// are listed in the SSD_AOT environment variable (';'-separated paths). The JIT stops at the
++// entry of every function such a module provides and the function runs natively instead; native
++// code calls back into the JIT for everything else (see dynarmic_cpu.cpp).
++#pragma once
++
++#include <mem/util.h>
++
++#include <cstdint>
++#include <string>
++
++struct MemState;
++
++namespace armrecomp {
++struct GuestContext;
++}
++
++using AotFn = void (*)(armrecomp::GuestContext *);
++
++// Load the modules named in SSD_AOT (once per process) and bind them to this guest memory.
++// sentinel is a guest address no code runs from: native code calling into the JIT returns there.
++void aot_init(MemState &mem, Address sentinel);
++void aot_deinit();
++
++bool aot_enabled();
++Address aot_sentinel();
++
++// The native function for a guest entry address (bit 0 set for Thumb), or null. A module's
++// functions become visible once its code has been checked against guest memory.
++AotFn aot_lookup(uint32_t addr);
++
++// Counters, logged every 10 s while native code runs and at deinit:
++// JIT -> native entries, native -> JIT calls (call_indirect, LLE import stubs), native -> HLE
++// calls, escapes (native -> JIT, abandoning native frames) and, with SSD_AOT_COUNT=1, the guest
++// instructions each side ran (the JIT through dynarmic's cycle counting, native code through
++// GuestContext::insns in modules built with RECOMP_COUNT_INSNS).
++bool aot_count_jit_insns();
++void aot_add_jit_insns(uint64_t n);
++void aot_add_native_insns(uint64_t n);
++void aot_count_native_entry();
++// Differential mode: SSD_AOT_DIFF=N checks every Nth native call per thread against the JIT
++uint64_t aot_diff_interval();
++void aot_count_diff(uint32_t pc, bool checked, bool mismatch, const char *skip_reason);
++void aot_count_diff_cost(uint64_t microseconds, uint64_t insns);
++void aot_note_mismatch(const std::string &text); // the last few appear in the counters text
++// JIT instructions run for a native -> JIT call to `key` (called) or from a top-level JIT run that
++// started at `key`; the counters text lists the heaviest
++void aot_profile_jit(uint32_t key, uint64_t insns, bool called);
++void aot_count_guest_call();
++void aot_count_import_call();
++void aot_count_escape(uint32_t pc);
++std::string aot_counters_text();
+diff --git a/vita3k/cpu/include/cpu/aot_abi.h b/vita3k/cpu/include/cpu/aot_abi.h
+new file mode 100644
+index 00000000..bc11f636
+--- /dev/null
++++ b/vita3k/cpu/include/cpu/aot_abi.h
+@@ -0,0 +1,74 @@
++// Binary interface between a recompiled module (a DLL built from generated/<module>/ by ss-delta's
++// recomp/) and this runtime (cpu/src/aot.cpp). Identical to ss-delta's recomp/runtime/aot_abi.h;
++// bump AOT_ABI_VERSION in both on any change.
++#pragma once
++
++#include <cstdint>
++
++namespace armrecomp {
++
++constexpr uint32_t AOT_ABI_VERSION = 1;
++
++struct GuestContext {
++    uint32_t r[16]; // r15 holds the address of the last branch target written by generated code
++    // flags as 0/1 values; generated code reads and writes them directly
++    uint32_t n, z, c, v, q;
++    uint32_t ge; // GE[3:0]
++    union {
++        uint64_t d[32];
++        uint32_t s[64];
++        float f[64];
++        double fd[32];
++    } vfp;
++    uint32_t fpscr;
++    uint32_t tpidruro; // user read-only thread ID register (TLS), read by mrc p15, 0, rd, c13, c0, 3
++    // exclusive monitor
++    uint32_t excl_addr;
++    uint32_t excl_valid;
++    uint64_t excl_value;
++    void *embedder; // opaque pointer for the embedder
++    uint64_t insns; // guest instructions run natively, counted by modules built with RECOMP_COUNT_INSNS
++};
++
++// Provided by the runtime. The hooks have the semantics documented in armrecomp.h; escape and
++// unsupported must not return (they throw or longjmp).
++struct AotHost {
++    uint32_t abi_version;
++    uint32_t context_size; // sizeof(GuestContext)
++    uint8_t *guest_base;
++    void (*call_indirect)(GuestContext *ctx, uint32_t addr);
++    void (*call_import)(GuestContext *ctx, uint32_t stub_addr);
++    void (*escape)(GuestContext *ctx, uint32_t pc);
++    void (*unsupported)(GuestContext *ctx, uint32_t pc);
++};
++
++struct AotFunction {
++    uint32_t addr; // entry address, bit 0 set for Thumb
++    uint32_t size; // bytes of guest code (literal pools included) the function was generated from
++    void (*fn)(GuestContext *ctx);
++};
++
++// Provided by the module.
++struct AotModule {
++    uint32_t abi_version;
++    uint32_t context_size;
++    const char *name; // ELF file name the code was generated from
++    const AotFunction *functions; // sorted by address
++    uint32_t function_count;
++    // FNV-1a 64 over the `size` bytes of every function in `functions`, in table order, with the
++    // 4 bytes at every `patched` address read as zero: the runtime checks it against guest memory
++    // before running any native code
++    uint64_t code_hash;
++    // instructions the loader rewrites (variable imports), sorted; generated code reads their
++    // immediates from guest memory
++    const uint32_t *patched;
++    uint32_t patched_count;
++};
++
++// The module DLL exports `extern "C" const AotModule *armrecomp_aot_init(const AotHost *)`. It
++// returns null when the host's ABI version or context size does not match.
++using AotInitFn = const AotModule *(*)(const AotHost *host);
++
++} // namespace armrecomp
++
++#define ARMRECOMP_AOT_INIT "armrecomp_aot_init"
+diff --git a/vita3k/cpu/include/cpu/impl/aot_hooks.h b/vita3k/cpu/include/cpu/impl/aot_hooks.h
+new file mode 100644
+index 00000000..84afa7f6
+--- /dev/null
++++ b/vita3k/cpu/include/cpu/impl/aot_hooks.h
+@@ -0,0 +1,29 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// The hooks recompiled code calls (cpu/aot_abi.h AotHost), implemented next to the JIT in
++// dynarmic_cpu.cpp.
++#pragma once
++
++#include <cpu/aot_abi.h>
++
++namespace aot_hooks {
++void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr);
++void call_import(armrecomp::GuestContext *ctx, uint32_t stub_addr);
++void escape(armrecomp::GuestContext *ctx, uint32_t pc);
++void unsupported(armrecomp::GuestContext *ctx, uint32_t pc);
++} // namespace aot_hooks
+diff --git a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+index c739592d..501af07b 100644
+--- a/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
++++ b/vita3k/cpu/include/cpu/impl/dynarmic_cpu.h
+@@ -19,6 +19,7 @@
+ 
+ #include <dynarmic/interface/A32/a32.h>
+ 
++#include <cpu/aot_abi.h>
+ #include <cpu/functions.h>
+ #include <cpu/impl/interface.h>
+ 
+@@ -26,6 +27,8 @@
+ 
+ class ArmDynarmicCallback;
+ class ArmDynarmicCP15;
++struct AotShadow;
++struct AotShadowResult;
+ 
+ class DynarmicCPU : public CPUInterface {
+     friend class ArmDynarmicCallback;
+@@ -47,6 +50,18 @@ class DynarmicCPU : public CPUInterface {
+ 
+     std::unique_ptr<Dynarmic::A32::Jit> make_jit();
+ 
++    // recompiled code (cpu/aot.h): the guest registers while native code runs
++    armrecomp::GuestContext guest{};
++    uint64_t jit_ticks = 0; // guest instructions this JIT ran (SSD_AOT_COUNT=1)
++    // differential mode (SSD_AOT_DIFF): a second JIT that runs sampled native calls first
++    std::unique_ptr<AotShadow> shadow;
++    uint64_t diff_counter = 0;
++    bool aot_diff_shadow(uint32_t pc, AotShadowResult &out);
++    void aot_diff_compare(uint32_t pc, const AotShadowResult &s);
++    bool aot_boundary();
++    void aot_run_until_sentinel(uint32_t target);
++    void aot_import(uint32_t nid);
++
+ public:
+     DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt);
+     ~DynarmicCPU() override;
+@@ -95,4 +110,11 @@ public:
+     void invalidate_jit_cache(Address start, size_t length) override;
+ 
+     static Dynarmic::ExclusiveMonitor shared_monitor;
++
++    // recompiled code: copy the registers between the JIT and the native context
++    void aot_sync_to_guest();
++    void aot_sync_from_guest();
++    // native code calling guest code the JIT runs, and an import stub
++    void aot_call_guest(uint32_t target);
++    void aot_call_import(uint32_t stub);
+ };
+diff --git a/vita3k/cpu/include/cpu/state.h b/vita3k/cpu/include/cpu/state.h
+index c815a802..634c1214 100644
+--- a/vita3k/cpu/include/cpu/state.h
++++ b/vita3k/cpu/include/cpu/state.h
+@@ -23,6 +23,7 @@
+ #include <util/types.h>
+ 
+ #include <atomic>
++#include <functional>
+ 
+ struct CPUState {
+     CPUState() = default;
+@@ -35,6 +36,12 @@ struct CPUState {
+     bool svc_called;
+     uint32_t svc;
+ 
++    // Recompiled code (cpu/aot.h). Native code calls HLE imports itself, through this handler,
++    // instead of returning to the thread's run loop; aot_unwind asks it to abandon its frames
++    // because the thread is exiting.
++    std::function<void(CPUState &, uint32_t nid)> import_handler;
++    std::atomic<bool> aot_unwind{ false };
++
+     // Exception handler support (kubridge abort handlers)
+     // These are set by the page fault callback (signal-safe atomics)
+     // and consumed by run_loop after HaltExecution returns.
+diff --git a/vita3k/cpu/src/aot.cpp b/vita3k/cpu/src/aot.cpp
+new file mode 100644
+index 00000000..0b9e9717
+--- /dev/null
++++ b/vita3k/cpu/src/aot.cpp
+@@ -0,0 +1,389 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++#include <cpu/aot.h>
++#include <cpu/aot_abi.h>
++#include <cpu/impl/aot_hooks.h>
++
++#include <mem/state.h>
++#include <util/log.h>
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdlib>
++#include <map>
++#include <memory>
++#include <mutex>
++#include <sstream>
++#include <thread>
++#include <unordered_map>
++#include <vector>
++
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#include <windows.h>
++#endif
++
++namespace {
++
++enum class Verified : int {
++    unknown,
++    yes,
++    no,
++};
++
++struct LoadedModule {
++    std::string path;
++    armrecomp::AotInitFn init = nullptr;
++    const armrecomp::AotModule *module = nullptr;
++    uint32_t lo = 0, hi = 0; // [first entry, last entry]
++    std::atomic<Verified> verified{ Verified::unknown };
++    std::mutex verify_mutex;
++};
++
++struct Registry {
++    std::vector<std::unique_ptr<LoadedModule>> modules;
++    // entry address (bit 0 = Thumb) -> function and its module; immutable after loading
++    std::unordered_map<uint32_t, std::pair<AotFn, LoadedModule *>> functions;
++    MemState *mem = nullptr;
++    Address sentinel = 0;
++    bool enabled = false;
++    bool count_jit_insns = false;
++};
++
++Registry registry;
++
++std::atomic<uint64_t> native_entries{ 0 }, guest_calls{ 0 }, import_calls{ 0 }, escapes{ 0 };
++std::atomic<uint64_t> native_insns{ 0 }, jit_insns{ 0 };
++std::atomic<int64_t> next_log{ 0 };
++std::mutex escape_mutex;
++std::map<uint32_t, uint64_t> escape_sites;
++std::atomic<uint64_t> diff_checked{ 0 }, diff_skipped{ 0 }, diff_mismatches{ 0 }, diff_us{ 0 }, diff_insns{ 0 };
++std::mutex diff_mutex;
++std::map<uint32_t, uint64_t> diff_bad; // function -> mismatching calls
++std::map<std::string, uint64_t> diff_skip_reasons;
++std::vector<std::string> diff_recent; // last mismatch descriptions
++std::mutex profile_mutex;
++std::unordered_map<uint32_t, uint64_t> profile_called, profile_top; // key -> JIT instructions
++
++// SSD_AOT_STATS=<file>: the counters, rewritten every 5 s with the native share of the last
++// interval (the log is asynchronous and loses its tail when the process is killed)
++void stats_thread(std::string path) {
++    uint64_t last_native = 0, last_jit = 0;
++    while (true) {
++        std::this_thread::sleep_for(std::chrono::seconds(5));
++        const uint64_t native = native_insns.load(), jit = jit_insns.load();
++        const uint64_t dn = native - last_native, dj = jit - last_jit;
++        last_native = native;
++        last_jit = jit;
++        if (FILE *f = std::fopen(path.c_str(), "w")) {
++            std::fputs(fmt::format("last 5 s: native {} JIT {} ({:.1f}% native)\n{}\n", dn, dj,
++                           dn + dj ? 100.0 * double(dn) / double(dn + dj) : 0.0, aot_counters_text())
++                           .c_str(),
++                f);
++            std::fclose(f);
++        }
++    }
++}
++
++void load_modules() {
++    const char *const count = std::getenv("SSD_AOT_COUNT");
++    registry.count_jit_insns = count && *count == '1';
++    if (const char *const stats = std::getenv("SSD_AOT_STATS"); stats && *stats)
++        std::thread(stats_thread, std::string(stats)).detach();
++#ifdef _WIN32
++    const char *const env = std::getenv("SSD_AOT");
++    if (!env || !*env)
++        return;
++    std::stringstream list{ std::string(env) };
++    std::string path;
++    while (std::getline(list, path, ';')) {
++        if (path.empty())
++            continue;
++        const HMODULE dll = LoadLibraryA(path.c_str());
++        if (!dll) {
++            LOG_ERROR("AOT: cannot load {} (error {})", path, GetLastError());
++            continue;
++        }
++        const auto init = reinterpret_cast<armrecomp::AotInitFn>(GetProcAddress(dll, ARMRECOMP_AOT_INIT));
++        if (!init) {
++            LOG_ERROR("AOT: {} has no {}", path, ARMRECOMP_AOT_INIT);
++            continue;
++        }
++        auto m = std::make_unique<LoadedModule>();
++        m->path = path;
++        m->init = init;
++        registry.modules.push_back(std::move(m));
++    }
++#else
++    if (std::getenv("SSD_AOT"))
++        LOG_ERROR("AOT: recompiled modules are only supported on Windows");
++#endif
++}
++
++// FNV-1a 64 over every function's bytes in guest memory, in table order (aot_abi.h)
++bool verify(LoadedModule &m) {
++    const armrecomp::AotModule &mod = *m.module;
++    const uint8_t *const base = registry.mem->memory.get();
++    // the words the loader patched (variable imports) hash as zero
++    const uint32_t *patched = mod.patched;
++    const uint32_t *const patched_end = mod.patched + mod.patched_count;
++    uint64_t hash = 0xcbf29ce484222325ull;
++    for (uint32_t i = 0; i < mod.function_count; i++) {
++        const uint32_t start = mod.functions[i].addr & ~1u;
++        for (uint32_t k = 0; k < mod.functions[i].size; k++) {
++            const uint32_t a = start + k;
++            while (patched != patched_end && *patched + 4 <= a)
++                patched++;
++            const uint8_t b = (patched != patched_end && *patched <= a) ? 0 : base[a];
++            hash = (hash ^ b) * 0x100000001b3ull;
++        }
++    }
++    if (const char *const dump = std::getenv("SSD_AOT_DUMP"); dump && *dump && mod.function_count) {
++        // the module's code as the runtime sees it, for comparison with the ELF
++        const uint32_t last = mod.function_count - 1;
++        const uint32_t start = mod.functions[0].addr & ~1u;
++        const uint32_t end = (mod.functions[last].addr & ~1u) + mod.functions[last].size;
++        if (FILE *f = std::fopen(dump, "wb")) {
++            std::fwrite(base + start, 1, end - start, f);
++            std::fclose(f);
++            LOG_INFO("AOT: wrote {:08x}-{:08x} to {}", start, end, dump);
++        }
++    }
++    if (hash != mod.code_hash) {
++        LOG_ERROR("AOT: {} does not match the code in guest memory (hash {:016x}, expected {:016x}); running it on the JIT",
++            mod.name, hash, mod.code_hash);
++        return false;
++    }
++    LOG_INFO("AOT: {} matches guest memory, native code enabled", mod.name);
++    return true;
++}
++
++} // namespace
++
++void aot_init(MemState &mem, Address sentinel) {
++    static std::once_flag loaded;
++    std::call_once(loaded, load_modules);
++    registry.enabled = false;
++    registry.functions.clear();
++    if (registry.modules.empty())
++        return;
++    if (mem.use_page_table) {
++        LOG_ERROR("AOT: recompiled code needs the flat guest memory mapping; disabled");
++        return;
++    }
++    registry.mem = &mem;
++    registry.sentinel = sentinel;
++
++    const armrecomp::AotHost host{
++        armrecomp::AOT_ABI_VERSION,
++        sizeof(armrecomp::GuestContext),
++        mem.memory.get(),
++        &aot_hooks::call_indirect,
++        &aot_hooks::call_import,
++        &aot_hooks::escape,
++        &aot_hooks::unsupported,
++    };
++    for (auto &m : registry.modules) {
++        m->module = m->init(&host);
++        m->verified = Verified::unknown;
++        if (!m->module) {
++            LOG_ERROR("AOT: {} was built for another ABI version (runtime {})", m->path, armrecomp::AOT_ABI_VERSION);
++            continue;
++        }
++        const armrecomp::AotModule &mod = *m->module;
++        // SSD_AOT_RANGE=lo-hi[,lo-hi...] (hex, end exclusive): only these functions run natively,
++        // for bisecting a misbehaving function
++        std::vector<std::pair<uint32_t, uint32_t>> ranges;
++        if (const char *const env = std::getenv("SSD_AOT_RANGE"); env && *env) {
++            std::stringstream list{ std::string(env) };
++            std::string item;
++            while (std::getline(list, item, ',')) {
++                const auto dash = item.find('-');
++                if (dash != std::string::npos)
++                    ranges.emplace_back(std::stoul(item.substr(0, dash), nullptr, 16), std::stoul(item.substr(dash + 1), nullptr, 16));
++            }
++        }
++        uint32_t registered = 0;
++        for (uint32_t i = 0; i < mod.function_count; i++) {
++            const uint32_t a = mod.functions[i].addr & ~1u;
++            if (!ranges.empty() && std::none_of(ranges.begin(), ranges.end(), [a](const auto &r) { return r.first <= a && a < r.second; }))
++                continue;
++            registry.functions.emplace(mod.functions[i].addr, std::make_pair(mod.functions[i].fn, m.get()));
++            registered++;
++        }
++        if (!ranges.empty())
++            LOG_INFO("AOT: SSD_AOT_RANGE leaves {} of {} functions native", registered, mod.function_count);
++        m->lo = mod.function_count ? mod.functions[0].addr & ~1u : 0;
++        m->hi = mod.function_count ? mod.functions[mod.function_count - 1].addr & ~1u : 0;
++        LOG_INFO("AOT: {} ({} functions, {:08x}-{:08x}) from {}", mod.name, mod.function_count, m->lo, m->hi, m->path);
++    }
++    registry.enabled = !registry.functions.empty();
++}
++
++void aot_deinit() {
++    if (registry.enabled)
++        LOG_INFO("AOT: {}", aot_counters_text());
++    registry.enabled = false;
++    registry.functions.clear();
++    registry.mem = nullptr;
++    registry.sentinel = 0;
++}
++
++bool aot_enabled() {
++    return registry.enabled;
++}
++
++Address aot_sentinel() {
++    return registry.sentinel;
++}
++
++AotFn aot_lookup(uint32_t addr) {
++    const auto it = registry.functions.find(addr);
++    if (it == registry.functions.end())
++        return nullptr;
++    LoadedModule &m = *it->second.second;
++    Verified v = m.verified.load(std::memory_order_acquire);
++    if (v == Verified::unknown) {
++        const std::lock_guard<std::mutex> lock(m.verify_mutex);
++        v = m.verified.load();
++        if (v == Verified::unknown) {
++            v = verify(m) ? Verified::yes : Verified::no;
++            m.verified = v;
++        }
++    }
++    return v == Verified::yes ? it->second.first : nullptr;
++}
++
++bool aot_count_jit_insns() {
++    return registry.count_jit_insns;
++}
++
++void aot_add_jit_insns(uint64_t n) {
++    jit_insns.fetch_add(n, std::memory_order_relaxed);
++}
++
++void aot_add_native_insns(uint64_t n) {
++    native_insns.fetch_add(n, std::memory_order_relaxed);
++}
++
++void aot_count_native_entry() {
++    const uint64_t n = native_entries.fetch_add(1, std::memory_order_relaxed);
++    if ((n & 0xffff) != 0)
++        return;
++    const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
++    int64_t due = next_log.load();
++    if (now >= due && next_log.compare_exchange_strong(due, now + 10))
++        LOG_INFO("AOT: {}", aot_counters_text());
++}
++
++void aot_profile_jit(uint32_t key, uint64_t insns, bool called) {
++    const std::lock_guard<std::mutex> lock(profile_mutex);
++    (called ? profile_called : profile_top)[key] += insns;
++}
++
++uint64_t aot_diff_interval() {
++    static const uint64_t interval = [] {
++        const char *const env = std::getenv("SSD_AOT_DIFF");
++        return env ? std::strtoull(env, nullptr, 10) : 0;
++    }();
++    return interval;
++}
++
++void aot_note_mismatch(const std::string &text) {
++    const std::lock_guard<std::mutex> lock(diff_mutex);
++    if (diff_recent.size() == 12)
++        diff_recent.erase(diff_recent.begin());
++    diff_recent.push_back(text);
++}
++
++void aot_count_diff_cost(uint64_t microseconds, uint64_t insns) {
++    diff_us.fetch_add(microseconds, std::memory_order_relaxed);
++    diff_insns.fetch_add(insns, std::memory_order_relaxed);
++}
++
++void aot_count_diff(uint32_t pc, bool checked, bool mismatch, const char *skip_reason) {
++    if (!checked) {
++        diff_skipped.fetch_add(1, std::memory_order_relaxed);
++        const std::lock_guard<std::mutex> lock(diff_mutex);
++        diff_skip_reasons[skip_reason]++;
++        return;
++    }
++    diff_checked.fetch_add(1, std::memory_order_relaxed);
++    if (mismatch) {
++        diff_mismatches.fetch_add(1, std::memory_order_relaxed);
++        const std::lock_guard<std::mutex> lock(diff_mutex);
++        diff_bad[pc]++;
++    }
++}
++
++void aot_count_guest_call() {
++    guest_calls.fetch_add(1, std::memory_order_relaxed);
++}
++
++void aot_count_import_call() {
++    import_calls.fetch_add(1, std::memory_order_relaxed);
++}
++
++void aot_count_escape(uint32_t pc) {
++    escapes.fetch_add(1, std::memory_order_relaxed);
++    const std::lock_guard<std::mutex> lock(escape_mutex);
++    escape_sites[pc]++;
++}
++
++std::string aot_counters_text() {
++    std::string out = fmt::format("native entries {}, native->JIT calls {}, native->HLE calls {}, escapes {}",
++        native_entries.load(), guest_calls.load(), import_calls.load(), escapes.load());
++    const uint64_t native = native_insns.load(), jit = jit_insns.load();
++    if (registry.count_jit_insns && native + jit)
++        out += fmt::format("; instructions native {} JIT {} ({:.1f}% native)", native, jit, 100.0 * double(native) / double(native + jit));
++    else if (native)
++        out += fmt::format("; native instructions {}", native);
++    const std::lock_guard<std::mutex> lock(escape_mutex);
++    std::vector<std::pair<uint64_t, uint32_t>> top;
++    for (const auto &[pc, n] : escape_sites)
++        top.emplace_back(n, pc);
++    std::sort(top.rbegin(), top.rend());
++    for (size_t i = 0; i < std::min<size_t>(top.size(), 8); i++)
++        out += fmt::format("{}{:08x} x{}", i ? ", " : "; top escapes: ", top[i].second, top[i].first);
++    if (aot_diff_interval()) {
++        out += fmt::format("; differential: {} calls checked, {} mismatching, {} skipped; shadow runs took {} ms for {} instructions",
++            diff_checked.load(), diff_mismatches.load(), diff_skipped.load(), diff_us.load() / 1000, diff_insns.load());
++        const std::lock_guard<std::mutex> dlock(diff_mutex);
++        for (const auto &[why, n] : diff_skip_reasons)
++            out += fmt::format(" [{} {}]", why, n);
++        size_t i = 0;
++        for (const auto &[pc, n] : diff_bad) {
++            if (i++ == 16)
++                break;
++            out += fmt::format("{}{:08x} x{}", i == 1 ? "; mismatching functions: " : ", ", pc, n);
++        }
++        for (const auto &m : diff_recent)
++            out += "\n  mismatch " + m;
++    }
++    const std::lock_guard<std::mutex> plock(profile_mutex);
++    for (const auto *map : { &profile_called, &profile_top }) {
++        std::vector<std::pair<uint64_t, uint32_t>> heavy;
++        for (const auto &[key, n] : *map)
++            heavy.emplace_back(n, key);
++        std::sort(heavy.rbegin(), heavy.rend());
++        for (size_t i = 0; i < std::min<size_t>(heavy.size(), 12); i++)
++            out += fmt::format("{}{:08x} {}M", i ? ", " : (map == &profile_called ? "; JIT called from native: " : "; JIT runs from: "), heavy[i].second, heavy[i].first / 1000000);
++    }
++    return out;
++}
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index 274d7f0d..77939ba3 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -16,6 +16,8 @@
+ // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ 
+ #include "cpu/common.h"
++#include <cpu/aot.h>
++#include <cpu/impl/aot_hooks.h>
+ #include <cpu/impl/dynarmic_cpu.h>
+ #include <cpu/state.h>
+ #include <util/log.h>
+@@ -25,8 +27,12 @@
+ #include <dynarmic/frontend/A32/a32_ir_emitter.h>
+ #include <dynarmic/interface/A32/coprocessor.h>
+ #include <dynarmic/interface/exclusive_monitor.h>
++#include <dynarmic/ir/terminal.h>
+ 
++#include <atomic>
+ #include <bit>
++#include <chrono>
++#include <cstdlib>
+ #include <memory>
+ #include <optional>
+ #include <string>
+@@ -153,6 +159,24 @@ public:
+         LOG_TRACE("{} ({}): {} {}", log_hex(self_), self.parent->thread_id, log_hex(address), disassembly);
+     }
+ 
++    // Recompiled code (cpu/aot.h): a block that reaches the entry of a native function, or the
++    // sentinel native code's calls into the JIT return to, ends there and stops the JIT with
++    // UserDefined7; DynarmicCPU::aot_boundary takes over.
++    static void AotBoundary(uint64_t cpu_) {
++        reinterpret_cast<DynarmicCPU *>(cpu_)->jit->HaltExecution(Dynarmic::HaltReason::UserDefined7);
++    }
++
++    bool PreCodeReadHook(bool is_thumb, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
++        if (!aot_enabled())
++            return true;
++        if (pc != aot_sentinel() && !(is_thumb && aot_lookup(pc | 1)))
++            return true;
++        ir.BranchWritePC(ir.Imm32(pc));
++        ir.CallHostFunction(&AotBoundary, ir.Imm64(reinterpret_cast<uint64_t>(cpu)));
++        ir.SetTerm(Dynarmic::IR::Term::CheckHalt{ Dynarmic::IR::Term::ReturnToDispatch{} });
++        return false;
++    }
++
+     void PreCodeTranslationHook(bool is_thumb, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
+         if (cpu->log_code) {
+             ir.CallHostFunction(&TraceInstruction, ir.Imm64((uint64_t)this), ir.Imm64(pc), ir.Imm64(is_thumb));
+@@ -323,7 +347,11 @@ public:
+         cpu->jit->HaltExecution(Dynarmic::HaltReason::UserDefined8);
+     }
+ 
+-    void AddTicks(uint64_t ticks) override {}
++    void AddTicks(uint64_t ticks) override {
++        // only called with SSD_AOT_COUNT=1 (enable_cycle_counting)
++        cpu->jit_ticks += ticks;
++        aot_add_jit_insns(ticks);
++    }
+ 
+     uint64_t GetTicksRemaining() override {
+         return 1ull << 60;
+@@ -332,6 +360,131 @@ public:
+ 
+ Dynarmic::ExclusiveMonitor DynarmicCPU::shared_monitor(MAX_CORE_COUNT);
+ 
++// Differential mode (SSD_AOT_DIFF): the shadow JIT runs a sampled native call first, from the same
++// registers, with every memory write journaled. A call that makes an HLE call (an SVC), stores
++// exclusively, touches invalid memory or runs too long is skipped; otherwise its results are recorded, its writes are
++// undone, the native code runs for real and the two are compared: registers r0-r13, the VFP
++// registers, FPSCR and every byte the shadow wrote. Writes only the native code makes are not
++// seen.
++struct AotShadowWrite {
++    uint32_t addr;
++    uint32_t size;
++    uint64_t old;
++    uint64_t final_value;
++};
++
++// One check's shadow results; checks nest (native code -> JIT -> another sampled native call), so
++// each boundary keeps its own
++struct AotShadowResult {
++    std::array<uint32_t, 16> entry{};
++    std::array<uint32_t, 16> regs{};
++    std::array<uint32_t, 64> ext{};
++    uint32_t fpscr = 0;
++    std::vector<AotShadowWrite> journal;
++};
++
++struct AotShadow final : Dynarmic::A32::UserCallbacks {
++    using Write = AotShadowWrite;
++
++    CPUState *state = nullptr;
++    // dynarmic needs a monitor to translate exclusives; the shadow's is private
++    Dynarmic::ExclusiveMonitor monitor{ 1 };
++    std::unique_ptr<Dynarmic::A32::Jit> jit;
++    std::vector<Write> journal;
++    const char *abort_reason = nullptr;
++    bool returned = false;
++    uint64_t ticks_left = 0;
++
++    template <typename T>
++    bool valid(uint32_t a) {
++        const Ptr<T> ptr{ a };
++        return ptr && ptr.valid(*state->mem) && a >= state->mem->host_page_size;
++    }
++    template <typename T>
++    T rd(uint32_t a) {
++        if (!valid<T>(a)) {
++            abort("invalid read");
++            return 0;
++        }
++        T v;
++        memcpy(&v, state->mem->memory.get() + a, sizeof(T));
++        return v;
++    }
++    template <typename T>
++    void wr(uint32_t a, T v) {
++        if (!valid<T>(a)) {
++            abort("invalid write");
++            return;
++        }
++        uint64_t old = 0;
++        memcpy(&old, state->mem->memory.get() + a, sizeof(T));
++        journal.push_back({ a, sizeof(T), old, 0 });
++        memcpy(state->mem->memory.get() + a, &v, sizeof(T));
++    }
++    void abort(const char *why) {
++        if (!abort_reason)
++            abort_reason = why;
++        jit->HaltExecution();
++    }
++
++    std::optional<std::uint32_t> MemoryReadCode(Dynarmic::A32::VAddr a) override {
++        if (!valid<uint32_t>(a))
++            return std::nullopt;
++        return rd<uint32_t>(a);
++    }
++    uint8_t MemoryRead8(Dynarmic::A32::VAddr a) override { return rd<uint8_t>(a); }
++    uint16_t MemoryRead16(Dynarmic::A32::VAddr a) override { return rd<uint16_t>(a); }
++    uint32_t MemoryRead32(Dynarmic::A32::VAddr a) override { return rd<uint32_t>(a); }
++    uint64_t MemoryRead64(Dynarmic::A32::VAddr a) override { return rd<uint64_t>(a); }
++    void MemoryWrite8(Dynarmic::A32::VAddr a, uint8_t v) override { wr(a, v); }
++    void MemoryWrite16(Dynarmic::A32::VAddr a, uint16_t v) override { wr(a, v); }
++    void MemoryWrite32(Dynarmic::A32::VAddr a, uint32_t v) override { wr(a, v); }
++    void MemoryWrite64(Dynarmic::A32::VAddr a, uint64_t v) override { wr(a, v); }
++    // exclusives synchronise with other threads, which keep running between the shadow's run and
++    // the native one (and would see the shadow's writes undone): such calls are not compared
++    template <typename T>
++    bool wr_excl(uint32_t, T, T) {
++        abort("atomics");
++        return false;
++    }
++    bool MemoryWriteExclusive8(Dynarmic::A32::VAddr a, uint8_t v, uint8_t e) override { return wr_excl(a, v, e); }
++    bool MemoryWriteExclusive16(Dynarmic::A32::VAddr a, uint16_t v, uint16_t e) override { return wr_excl(a, v, e); }
++    bool MemoryWriteExclusive32(Dynarmic::A32::VAddr a, uint32_t v, uint32_t e) override { return wr_excl(a, v, e); }
++    bool MemoryWriteExclusive64(Dynarmic::A32::VAddr a, uint64_t v, uint64_t e) override { return wr_excl(a, v, e); }
++    void InterpreterFallback(Dynarmic::A32::VAddr, size_t) override { abort("interpreter fallback"); }
++    void CallSVC(uint32_t) override { abort("HLE call"); }
++    void ExceptionRaised(uint32_t, Dynarmic::A32::Exception e) override {
++        switch (e) {
++        case Dynarmic::A32::Exception::PreloadDataWithIntentToWrite:
++        case Dynarmic::A32::Exception::PreloadData:
++        case Dynarmic::A32::Exception::PreloadInstruction:
++        case Dynarmic::A32::Exception::SendEvent:
++        case Dynarmic::A32::Exception::SendEventLocal:
++        case Dynarmic::A32::Exception::WaitForEvent:
++        case Dynarmic::A32::Exception::Yield:
++            break;
++        default:
++            abort("exception");
++        }
++    }
++    void AddTicks(uint64_t t) override { ticks_left = t > ticks_left ? 0 : ticks_left - t; }
++    uint64_t GetTicksRemaining() override { return ticks_left; }
++
++    static void Returned(uint64_t self_) {
++        AotShadow &self = *reinterpret_cast<AotShadow *>(self_);
++        self.returned = true;
++        self.jit->HaltExecution();
++    }
++    bool PreCodeReadHook(bool, Dynarmic::A32::VAddr pc, Dynarmic::A32::IREmitter &ir) override {
++        if (pc != aot_sentinel())
++            return true;
++        ir.BranchWritePC(ir.Imm32(pc));
++        ir.CallHostFunction(&Returned, ir.Imm64(reinterpret_cast<uint64_t>(this)));
++        ir.SetTerm(Dynarmic::IR::Term::CheckHalt{ Dynarmic::IR::Term::ReturnToDispatch{} });
++        return false;
++    }
++};
++
+ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
+     Dynarmic::A32::UserConfig config{};
+     config.arch_version = Dynarmic::A32::ArchVersion::v7;
+@@ -347,7 +500,7 @@ std::unique_ptr<Dynarmic::A32::Jit> DynarmicCPU::make_jit() {
+     config.coprocessors[15] = cp15;
+     config.processor_id = core_id;
+     config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
+-    config.enable_cycle_counting = false;
++    config.enable_cycle_counting = aot_count_jit_insns();
+ 
+     return std::make_unique<Dynarmic::A32::Jit>(config);
+ }
+@@ -363,18 +516,330 @@ DynarmicCPU::DynarmicCPU(CPUState *state, std::size_t processor_id, bool cpu_opt
+ 
+ DynarmicCPU::~DynarmicCPU() = default;
+ 
++// Runs the call at pc on the shadow JIT from the JIT's current registers; true when it returned
++// normally, with its results recorded and its writes undone
++bool DynarmicCPU::aot_diff_shadow(uint32_t pc, AotShadowResult &out) {
++    if (!shadow) {
++        shadow = std::make_unique<AotShadow>();
++        shadow->state = parent;
++        Dynarmic::A32::UserConfig config{};
++        config.arch_version = Dynarmic::A32::ArchVersion::v7;
++        config.callbacks = shadow.get();
++        config.coprocessors[15] = cp15;
++        config.global_monitor = &shadow->monitor;
++        config.processor_id = 0;
++        config.optimizations = cpu_opt ? Dynarmic::all_safe_optimizations : Dynarmic::no_optimizations;
++        config.enable_cycle_counting = true;
++        shadow->jit = std::make_unique<Dynarmic::A32::Jit>(config);
++    }
++    AotShadow &s = *shadow;
++    out.entry = jit->Regs();
++    s.jit->Regs() = jit->Regs();
++    s.jit->Regs()[14] = aot_sentinel() | 1;
++    s.jit->ExtRegs() = jit->ExtRegs();
++    s.jit->SetCpsr(jit->Cpsr());
++    s.jit->SetFpscr(jit->Fpscr());
++    s.jit->ClearExclusiveState();
++    s.monitor.ClearProcessor(0);
++    s.journal.clear();
++    s.abort_reason = nullptr;
++    s.returned = false;
++    s.ticks_left = 20'000'000;
++    const auto t0 = std::chrono::steady_clock::now();
++    int spurious = 0;
++    while (!s.returned && !s.abort_reason) {
++        const Dynarmic::HaltReason hr = s.jit->Run();
++        if (s.ticks_left == 0 && !s.returned)
++            s.abort("too long");
++        else if (hr != Dynarmic::HaltReason::Step && hr != Dynarmic::HaltReason::CacheInvalidation && !s.returned && !s.abort_reason
++            && ++spurious > 2) {
++            // a halt left over from an earlier aborted run returns once; anything more is unexpected
++            static thread_local std::string why;
++            why = fmt::format("stopped {:x} at {:08x}", static_cast<uint32_t>(hr), s.jit->Regs()[15]);
++            s.abort(why.c_str());
++        }
++    }
++    aot_count_diff_cost(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count(), 20'000'000 - s.ticks_left);
++    uint8_t *const base = parent->mem->memory.get();
++    if (!s.abort_reason) {
++        out.regs = s.jit->Regs();
++        out.ext = s.jit->ExtRegs();
++        out.fpscr = s.jit->Fpscr();
++        for (auto &w : s.journal)
++            memcpy(&w.final_value, base + w.addr, w.size);
++        out.journal = s.journal;
++    } else {
++        aot_count_diff(pc, false, false, s.abort_reason);
++    }
++    for (auto it = s.journal.rbegin(); it != s.journal.rend(); ++it)
++        memcpy(base + it->addr, &it->old, it->size);
++    return !s.abort_reason;
++}
++
++// Compares the native call that just returned with the shadow's run of it
++void DynarmicCPU::aot_diff_compare(uint32_t pc, const AotShadowResult &s) {
++    // native code's calls into the JIT and the shadow's own call return to the sentinel, so a
++    // pushed return address can be the sentinel on one side and the real one on the other
++    const uint32_t sentinel = aot_sentinel() | 1;
++    const auto same = [sentinel](uint64_t a, uint64_t b, uint32_t size) {
++        return a == b || (size == 4 && (a == sentinel || b == sentinel));
++    };
++    std::string diff;
++    for (int i = 0; i < 14; i++) {
++        if (!same(guest.r[i], s.regs[i], 4))
++            diff += fmt::format(" r{} {:08x}/{:08x}", i, guest.r[i], s.regs[i]);
++    }
++    for (int i = 0; i < 64; i++) {
++        if (guest.vfp.s[i] != s.ext[i]) {
++            diff += fmt::format(" s{} {:08x}/{:08x}", i, guest.vfp.s[i], s.ext[i]);
++            break;
++        }
++    }
++    if ((guest.fpscr & 0xffffff00u) != (s.fpscr & 0xffffff00u))
++        diff += fmt::format(" fpscr {:08x}/{:08x}", guest.fpscr, s.fpscr);
++    const uint8_t *const base = parent->mem->memory.get();
++    int memory_diffs = 0;
++    for (const auto &w : s.journal) {
++        uint64_t now = 0;
++        memcpy(&now, base + w.addr, w.size);
++        if (!same(now, w.final_value, w.size) && memory_diffs++ < 4)
++            diff += fmt::format(" [{:08x}] {:x}/{:x}", w.addr, now, w.final_value);
++    }
++    if (memory_diffs > 4)
++        diff += fmt::format(" ({} memory differences)", memory_diffs);
++    aot_count_diff(pc, true, !diff.empty(), nullptr);
++    if (!diff.empty()) {
++        LOG_ERROR("AOT diff {:08x} (native/JIT):{}", pc, diff);
++        aot_note_mismatch(fmt::format("{:08x} (native/JIT):{}; entry r0-3 {:08x} {:08x} {:08x} {:08x} sp {:08x} lr {:08x}; shadow pc {:08x} lr {:08x}",
++            pc, diff, s.entry[0], s.entry[1], s.entry[2], s.entry[3], s.entry[13], s.entry[14], s.regs[15], s.regs[14]));
++    }
++}
++
++namespace {
++
++// Native code jumped somewhere it cannot continue (aot_hooks::escape): the JIT continues from pc
++// and the native frames since the last boundary are abandoned.
++struct AotEscape {
++    uint32_t pc;
++};
++
++// The thread is exiting (CPUState::aot_unwind): abandon every native frame up to run().
++struct AotUnwind {};
++
++constexpr auto AOT_HALT = Dynarmic::HaltReason::UserDefined7;
++
++DynarmicCPU &aot_owner(armrecomp::GuestContext *ctx) {
++    return *static_cast<DynarmicCPU *>(ctx->embedder);
++}
++
++} // namespace
++
+ int DynarmicCPU::run() {
+     halted = false;
+     break_ = false;
+     parent->svc_called = false;
+-    Dynarmic::HaltReason halt_reason;
+-    do {
+-        halt_reason = jit->Run();
+-    } while ((halt_reason == Dynarmic::HaltReason::Step) || (halt_reason == Dynarmic::HaltReason::CacheInvalidation));
++    try {
++        while (true) {
++            const uint32_t start_pc = jit->Regs()[15];
++            const uint64_t start_ticks = jit_ticks;
++            const Dynarmic::HaltReason halt_reason = jit->Run();
++            if (jit_ticks != start_ticks)
++                aot_profile_jit(start_pc, jit_ticks - start_ticks, false);
++            if (Dynarmic::Has(halt_reason, AOT_HALT)) {
++                if (aot_boundary()) {
++                    // native code's calls into the JIT return to the sentinel inside aot_call_guest
++                    LOG_ERROR("AOT: guest code returned to the sentinel outside a call from native code");
++                    return -1;
++                }
++                if (halt_reason == AOT_HALT)
++                    continue;
++                break; // also stopped for another reason: return to the run loop
++            }
++            if (halt_reason != Dynarmic::HaltReason::Step && halt_reason != Dynarmic::HaltReason::CacheInvalidation)
++                break;
++        }
++    } catch (const AotUnwind &) {
++        // the thread is exiting; its run loop sees why
++    }
+ 
+     return halted;
+ }
+ 
++void DynarmicCPU::aot_sync_to_guest() {
++    std::copy(jit->Regs().begin(), jit->Regs().end(), guest.r);
++    const uint32_t cpsr = jit->Cpsr();
++    guest.n = (cpsr >> 31) & 1;
++    guest.z = (cpsr >> 30) & 1;
++    guest.c = (cpsr >> 29) & 1;
++    guest.v = (cpsr >> 28) & 1;
++    guest.q = (cpsr >> 27) & 1;
++    guest.ge = (cpsr >> 16) & 0xf;
++    static_assert(sizeof(guest.vfp) == sizeof(jit->ExtRegs()));
++    memcpy(guest.vfp.s, jit->ExtRegs().data(), sizeof(guest.vfp));
++    guest.fpscr = jit->Fpscr();
++    guest.tpidruro = cp15->get_tpidruro();
++    guest.excl_valid = 0;
++    guest.embedder = this;
++}
++
++void DynarmicCPU::aot_sync_from_guest() {
++    std::copy(guest.r, guest.r + 16, jit->Regs().begin());
++    // mode, A/I/F from the JIT; IT state is clear at every boundary; set_pc sets T
++    const uint32_t cpsr = (jit->Cpsr() & 0x1df) | guest.n << 31 | guest.z << 30 | guest.c << 29 | guest.v << 28 | guest.q << 27 | (guest.ge & 0xf) << 16;
++    jit->SetCpsr(cpsr);
++    memcpy(jit->ExtRegs().data(), guest.vfp.s, sizeof(guest.vfp));
++    jit->SetFpscr(guest.fpscr);
++}
++
++// The JIT stopped at a native entry or at the sentinel (true). Runs the native function and puts
++// the JIT where it returned or escaped to.
++bool DynarmicCPU::aot_boundary() {
++    const uint32_t pc = jit->Regs()[15];
++    if (pc == aot_sentinel())
++        return true;
++    const AotFn fn = aot_lookup(pc | 1);
++    if (!fn) {
++        LOG_ERROR("AOT: the JIT stopped at {} without native code", log_hex(pc));
++        return false;
++    }
++    aot_count_native_entry();
++    // differential mode: the shadow JIT runs the call first
++    const uint64_t diff_interval = aot_diff_interval();
++    AotShadowResult shadow_result;
++    const bool diff = diff_interval && ++diff_counter % diff_interval == 0 && aot_diff_shadow(pc, shadow_result);
++    aot_sync_to_guest();
++    // SSD_AOT_TRACE=N logs the first N native calls (debugging)
++    static const int64_t trace_limit = [] {
++        const char *const env = std::getenv("SSD_AOT_TRACE");
++        return env ? std::strtoll(env, nullptr, 10) : 0;
++    }();
++    static std::atomic<int64_t> traced{ 0 };
++    const bool trace = trace_limit && traced.fetch_add(1) < trace_limit;
++    if (trace)
++        LOG_INFO("AOT enter {:08x} r0-3 {:08x} {:08x} {:08x} {:08x} sp {:08x} lr {:08x}", pc, guest.r[0], guest.r[1], guest.r[2], guest.r[3], guest.r[13], guest.r[14]);
++    uint32_t next;
++    try {
++        fn(&guest);
++        next = guest.r[15];
++        if (diff)
++            aot_diff_compare(pc, shadow_result);
++    } catch (const AotEscape &e) {
++        next = e.pc;
++        if (trace)
++            LOG_INFO("AOT escape from {:08x} to {:08x}", pc, next);
++    }
++    if (trace)
++        LOG_INFO("AOT leave {:08x} -> {:08x} r0-1 {:08x} {:08x} sp {:08x}", pc, next, guest.r[0], guest.r[1], guest.r[13]);
++    aot_add_native_insns(guest.insns);
++    guest.insns = 0;
++    aot_sync_from_guest();
++    set_pc(next);
++    return false;
++}
++
++// Runs the JIT until guest code returns to the sentinel, handling what run() leaves to the
++// thread's run loop: imports and native entries.
++void DynarmicCPU::aot_run_until_sentinel(uint32_t target) {
++    while (true) {
++        parent->svc_called = false;
++        halted = false;
++        const uint64_t start_ticks = jit_ticks;
++        const Dynarmic::HaltReason halt_reason = jit->Run();
++        if (jit_ticks != start_ticks)
++            aot_profile_jit(target, jit_ticks - start_ticks, true);
++        const bool ended = halted;
++        if (parent->svc_called)
++            aot_import(*Ptr<uint32_t>(get_pc() + 4).get(*parent->mem));
++        if (parent->aot_unwind)
++            throw AotUnwind{};
++        if (Dynarmic::Has(halt_reason, AOT_HALT) && aot_boundary())
++            return;
++        if (ended) {
++            // the guest returned past the sentinel to the thread's halt instruction
++            LOG_ERROR("AOT: guest code called from native code ended its thread at {}", log_hex(get_pc()));
++            throw AotUnwind{};
++        }
++        // Step, CacheInvalidation, a stop() for a suspend: keep going
++    }
++}
++
++// An HLE call made while this CPU is inside run() (the run loop makes them between runs). Guest
++// callbacks the HLE function runs end on the halt instruction and set halted/break_ for their own
++// run(), not for this one.
++void DynarmicCPU::aot_import(uint32_t nid) {
++    const bool was_halted = halted, was_break = break_;
++    parent->import_handler(*parent, nid);
++    clear_exclusive();
++    halted = was_halted;
++    break_ = was_break;
++}
++
++void DynarmicCPU::aot_call_guest(uint32_t target) {
++    aot_count_guest_call();
++    const uint32_t ret = guest.r[14];
++    static const bool trace = std::getenv("SSD_AOT_TRACE") != nullptr;
++    if (trace)
++        LOG_INFO("AOT call JIT {:08x} r0-3 {:08x} {:08x} {:08x} {:08x} sp {:08x} ret {:08x}", target, guest.r[0], guest.r[1], guest.r[2], guest.r[3], guest.r[13], ret);
++    aot_sync_from_guest();
++    jit->Regs()[14] = aot_sentinel() | 1;
++    set_pc(target);
++    aot_run_until_sentinel(target);
++    aot_sync_to_guest();
++    guest.r[14] = ret;
++    guest.r[15] = ret;
++}
++
++void DynarmicCPU::aot_call_import(uint32_t stub) {
++    const uint32_t *const words = Ptr<uint32_t>(stub).get(*parent->mem);
++    if (words[0] != 0xef000000 || words[1] != 0xe1a0f00e) {
++        // bound to another module's export (movw/movt/bx r12) or something else: run the stub
++        aot_call_guest(stub);
++        return;
++    }
++    // svc #0; mov pc, lr; .word nid: the HLE function, as the run loop would call it
++    aot_count_import_call();
++    const uint32_t ret = guest.r[14];
++    aot_sync_from_guest();
++    set_pc(stub + 4);
++    aot_import(words[2]);
++    aot_sync_to_guest();
++    if (parent->aot_unwind)
++        throw AotUnwind{};
++    if (get_pc() != stub + 4 || is_thumb_mode()) {
++        // the HLE function switched contexts (SceFiber): continue there on the JIT
++        aot_count_escape(stub);
++        throw AotEscape{ get_pc() | (is_thumb_mode() ? 1u : 0u) };
++    }
++    guest.r[15] = ret;
++}
++
++namespace aot_hooks {
++
++void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr) {
++    if (const AotFn fn = aot_lookup(addr)) {
++        fn(ctx);
++        return;
++    }
++    aot_owner(ctx).aot_call_guest(addr);
++}
++
++void call_import(armrecomp::GuestContext *ctx, uint32_t stub_addr) {
++    aot_owner(ctx).aot_call_import(stub_addr);
++}
++
++void escape(armrecomp::GuestContext *, uint32_t pc) {
++    aot_count_escape(pc);
++    throw AotEscape{ pc };
++}
++
++void unsupported(armrecomp::GuestContext *, uint32_t pc) {
++    LOG_ERROR("AOT: no native code for the instruction at {}", log_hex(pc));
++    aot_count_escape(pc);
++    throw AotEscape{ pc };
++}
++
++} // namespace aot_hooks
++
+ int DynarmicCPU::step() {
+     parent->svc_called = false;
+     jit->Step();
+diff --git a/vita3k/kernel/include/kernel/state.h b/vita3k/kernel/include/kernel/state.h
+index 10d0a3f1..172a9ccd 100644
+--- a/vita3k/kernel/include/kernel/state.h
++++ b/vita3k/kernel/include/kernel/state.h
+@@ -147,6 +147,9 @@ struct KernelState {
+     Block halt_instruction;
+     Address halt_instruction_pc;
+ 
++    // Return address of native code's calls into the JIT (cpu/aot.h); never executed
++    Block aot_sentinel;
++
+     ObjectStore obj_store;
+ 
+     uint64_t start_tick;
+diff --git a/vita3k/kernel/src/kernel.cpp b/vita3k/kernel/src/kernel.cpp
+index b14c5253..94b509ac 100644
+--- a/vita3k/kernel/src/kernel.cpp
++++ b/vita3k/kernel/src/kernel.cpp
+@@ -19,6 +19,7 @@
+ #include <tracy/Tracy.hpp>
+ #endif
+ 
++#include <cpu/aot.h>
+ #include <cpu/common.h>
+ #include <kernel/state.h>
+ #include <mem/functions.h>
+@@ -106,6 +107,13 @@ bool KernelState::init(MemState &mem, const CallImportFunc &call_import, bool cp
+     halt_ptr[1] = 0xBF30; // WFI
+     halt_instruction_pc = halt_instruction.get() | 1; // thumb mode pc
+ 
++    // Recompiled modules (SSD_AOT), if any
++    aot_sentinel = alloc_block(mem, 4, "aot_sentinel");
++    const auto sentinel_ptr = aot_sentinel.get_ptr<uint16_t>().get(mem);
++    sentinel_ptr[0] = 0xBF00; // NOP
++    sentinel_ptr[1] = 0xBF30; // WFI
++    aot_init(mem, aot_sentinel.get());
++
+     return true;
+ }
+ 
+@@ -176,7 +184,16 @@ ThreadStatePtr KernelState::create_thread(MemState &mem, const char *name, Ptr<c
+     params.thid = thread->id;
+ 
+     params.host_may_destroy_params = SDL_CreateSemaphore(0);
+-    SDL_DetachThread(SDL_CreateThread(&thread_function, thread->name.c_str(), &params));
++    // Recompiled code runs guest calls as host calls: give it a deep host stack (reserved, not
++    // committed)
++    const SDL_PropertiesID props = SDL_CreateProperties();
++    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_ENTRY_FUNCTION_POINTER, reinterpret_cast<void *>(&thread_function));
++    SDL_SetStringProperty(props, SDL_PROP_THREAD_CREATE_NAME_STRING, thread->name.c_str());
++    SDL_SetPointerProperty(props, SDL_PROP_THREAD_CREATE_USERDATA_POINTER, &params);
++    if (aot_enabled())
++        SDL_SetNumberProperty(props, SDL_PROP_THREAD_CREATE_STACKSIZE_NUMBER, 64 * 1024 * 1024);
++    SDL_DetachThread(SDL_CreateThreadWithProperties(props));
++    SDL_DestroyProperties(props);
+     SDL_WaitSemaphore(params.host_may_destroy_params);
+     SDL_DestroySemaphore(params.host_may_destroy_params);
+ 
+@@ -268,6 +285,9 @@ void KernelState::deinit(MemState &mem) {
+     halt_instruction = nullptr;
+     halt_instruction_pc = 0;
+ 
++    aot_deinit();
++    aot_sentinel = nullptr;
++
+     process_param = nullptr;
+     client_vtable = Ptr<void>(0);
+     shellsvc_client = Ptr<Address>(0);
+diff --git a/vita3k/kernel/src/thread.cpp b/vita3k/kernel/src/thread.cpp
+index d4211f7c..8ddf0f6a 100644
+--- a/vita3k/kernel/src/thread.cpp
++++ b/vita3k/kernel/src/thread.cpp
+@@ -63,6 +63,10 @@ int ThreadState::init(const char *name, Ptr<const void> entry_point, int init_pr
+     if (!cpu) {
+         return SCE_KERNEL_ERROR_ERROR;
+     }
++    // recompiled code calls imports itself (cpu/aot.h)
++    cpu->import_handler = [this](CPUState &cpu_state, uint32_t nid) {
++        kernel.call_import(cpu_state, nid, id);
++    };
+     if (kernel.debugger.watch_code) {
+         set_log_code(*cpu, true);
+     }
+@@ -143,6 +147,7 @@ void ThreadState::exit(SceInt32 status) {
+     run_end_callback = true;
+     exit_requested = true;
+     returned_value = static_cast<uint32_t>(status);
++    cpu->aot_unwind = true;
+ }
+ 
+ void ThreadState::exit_delete(bool exit) {
+@@ -150,6 +155,7 @@ void ThreadState::exit_delete(bool exit) {
+ 
+     run_end_callback = exit;
+     delete_requested = true;
++    cpu->aot_unwind = true;
+ 
+     if (status == ThreadStatus::running) {
+         stop(*cpu);
+@@ -202,6 +208,9 @@ void ThreadState::run_loop() {
+     while (true) {
+         // Check if this call-level is done (normal exit, guest return, or delete).
+         if (exit_requested || guest_returned || delete_requested) {
++            // native frames are gone once the top level sees the exit
++            if (top_level)
++                cpu->aot_unwind = false;
+             // Top-level fires the end callback and parks dormant
+             if (top_level && status != ThreadStatus::dormant) {
+                 run_thread_end_callback();
+-- 
+2.56.0.windows.2
+

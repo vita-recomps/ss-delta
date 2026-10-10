@@ -39,6 +39,14 @@ conventions.
   with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,
   Qt 6.11.0 in `C:\Qt`) into `build/vita3k`. Export our commits to
   `patches/vita3k/` with `git format-patch` before committing here.
+- The shader cache in `build/vita3k/bin/RelWithDebInfo/cache/shaders/` is
+  keyed by guest shader, not by translator version. Runs of a build with
+  changed shader translation (debug branches, `SSD_DENORM`, ...) leave
+  shaders there that break later runs: move the title's folder aside after
+  such runs.
+- Recompiled code: build `ssd_aot_eboot.dll` with `recomp/` and set
+  `SSD_AOT` to it before launching the fork (docs/05-recompiler.md lists the
+  other `SSD_AOT_*` switches).
 - NID names: vitasdk `vita-headers` db in `third_party/vita-headers/db/360`
   (pinned commit in `PINNED_COMMIT`, not committed). The code inventory is
   regenerated with `tools/inventory.py` into `generated/inventory/`.

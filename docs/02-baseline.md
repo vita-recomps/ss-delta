@@ -602,6 +602,21 @@ build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
 earlier log has one. To watch for in Phase 4's differential runs.
 
+## Stale shader cache after the floor diagnostics (2026-10-10)
+
+During Phase 4 the player in `ELDER DEFAULT MAP` showed up with the cloak
+stretched across the screen and the body bare. The JIT-only build did the
+same, so the recompiled code wasn't the cause. The cause was the shader cache
+next to our exe (`cache/shaders/PCSA00152`). It still held shaders that a
+diagnostic build (the `SSD_DENORM` variants) had translated. The cache is
+keyed by the guest shader, so later builds reused those shaders and the
+vertex shaders broke, as in the `SSD_DENORM=ftz` row above.
+
+With the folder moved aside (`PCSA00152.stale-floor-diag`), the JIT build
+and the native build (`SSD_AOT`) both render the field as in
+`fix4-vk-elder.png`: solid cloak, correct body. After any run of a build
+whose shader translation differs, move the title's cache folder aside.
+
 ## Not measured yet
 
 * Real button input: title → save creation → hub → quest. This needs

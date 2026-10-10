@@ -179,3 +179,60 @@ recursive descent, jump tables, IT blocks).
   both.
 * Generated code depends only on `recomp/runtime/`. Phase 4 plugs it into
   Vita3K through that interface.
+
+## D7 — Native code runs at JIT block boundaries, from a DLL the fork loads (accepted, 2026-10-10)
+
+**Context:** Phase 4. Generated code needs a host CPU loop to run in,
+access to Vita3K's HLE imports, and a way back to dynarmic for code that
+isn't recompiled (NEON, ARM mode, the LLE libraries, indirect jumps).
+
+**Decision:**
+
+* Each recompiled module is built as a DLL (`ssd_aot_<module>.dll`). It is
+  built from `generated/` and never committed. The fork loads every DLL
+  named in the `SSD_AOT` environment variable (`;`-separated). The ABI is
+  `recomp/runtime/aot_abi.h`, which the fork copies as
+  `cpu/include/cpu/aot_abi.h`: the guest context, the host hooks, and the
+  module's function table and code hash.
+* Before a module's code runs natively, the fork checks its code hash
+  against guest memory. A mismatch, for example from a different game
+  version or a code patch, leaves the module on the JIT.
+  * The hash skips the instruction words the loader patches for variable
+    imports. Generated code reads their immediates at run time.
+* **JIT → native:** dynarmic's `PreCodeReadHook` ends every block that
+  reaches a recompiled function's entry, and halts the JIT there with
+  `UserDefined7`. `DynarmicCPU::run` then copies the registers into the
+  guest context, calls the function, copies them back and continues the
+  JIT at the returned `r15`.
+* **Native → JIT** (`call_indirect` without a native target, LLE import
+  stubs): the call runs a nested JIT loop with `lr` set to a sentinel
+  block. The hook stops the loop there. The nested loop handles SVCs and
+  native entries itself.
+* **Native → HLE:** `call_import` reads the patched stub. For
+  `svc #0; mov pc, lr; .word nid`, it calls the kernel's import handler
+  directly. Anything else, such as a stub bound to an LLE module, runs on
+  the JIT.
+* **Escapes** throw a C++ exception. It is caught at the innermost
+  boundary, and the JIT continues from the escape address with the native
+  frames above that boundary abandoned. A thread that exits while native
+  code is on its stack unwinds the same way (`CPUState::aot_unwind`).
+* Guest threads get 64 MiB host stacks while AOT is enabled, because guest
+  calls become host calls.
+* `strex` is a host compare-and-swap against the value `ldrex` read, as
+  Vita3K's dynarmic does it, so native and JIT threads share one exclusive
+  protocol.
+
+**Consequences:**
+
+* Without `SSD_AOT` the fork behaves as before.
+* Verification tools ship with the runtime:
+  * `SSD_AOT_DIFF`, a differential mode against a shadow JIT;
+  * `SSD_AOT_COUNT`/`SSD_AOT_STATS` counters;
+  * `SSD_AOT_RANGE`, plus `RECOMP_BISECT` DLLs, for bisecting.
+  * See [05-recompiler](05-recompiler.md#runtime-in-the-fork-phase-4).
+* Every transition copies about 350 bytes of registers. A hot native
+  caller of a JIT-only function (most often NEON) pays a nested `Run()`
+  per call. Phase 5 removes most of these calls.
+* Generated code is never linked into Vita3K. The fork stays free of
+  game-derived code (D2), and a regenerated DLL needs no Vita3K rebuild
+  unless the ABI version changes.

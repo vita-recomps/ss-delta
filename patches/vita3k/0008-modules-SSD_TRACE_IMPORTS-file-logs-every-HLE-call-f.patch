@@ -1,0 +1,48 @@
+From 4debd9fa147b0610a790f3bf9d79d24ef1f448f2 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 11:34:44 +0200
+Subject: [PATCH 8/8] modules: SSD_TRACE_IMPORTS=<file> logs every HLE call,
+ flushed per line
+
+Arguments, lr and result of each import call, written outside the
+asynchronous log so that the trace survives a killed process. Used to
+find where an AOT run diverged from a JIT run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/modules/module_parent.cpp | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/vita3k/modules/module_parent.cpp b/vita3k/modules/module_parent.cpp
+index 90fe2da5..6c49fd1a 100644
+--- a/vita3k/modules/module_parent.cpp
++++ b/vita3k/modules/module_parent.cpp
+@@ -160,9 +160,25 @@ void call_import(EmuEnvState &emuenv, CPUState &cpu, uint32_t nid, SceUID thread
+         auto lr = read_lr(cpu);
+         log_import_call('H', nid, thread_id, hle_nid_blacklist, lr);
+     }
++    // SSD_TRACE_IMPORTS=<file>: every HLE call with its arguments and result, flushed line by line
++    // so that it survives a killed process (ss-delta debugging)
++    static FILE *const trace_file = [] {
++        const char *const env = std::getenv("SSD_TRACE_IMPORTS");
++        return env && *env ? std::fopen(env, "w") : nullptr;
++    }();
++    static std::mutex trace_mutex;
++    const auto trace = [&](const std::string &line) {
++        const std::lock_guard<std::mutex> lock(trace_mutex);
++        std::fputs(line.c_str(), trace_file);
++        std::fflush(trace_file);
++    };
++    if (trace_file)
++        trace(fmt::format("{} > {} ({:08x} {:08x} {:08x} {:08x}) lr {:08x}\n", thread_id, import_name(nid), read_reg(cpu, 0), read_reg(cpu, 1), read_reg(cpu, 2), read_reg(cpu, 3), read_lr(cpu)));
+     const ImportFn *fn = resolve_import(nid);
+     if (fn) {
+         (*fn)(emuenv, cpu, thread_id);
++        if (trace_file)
++            trace(fmt::format("{} < {} -> {:08x}\n", thread_id, import_name(nid), read_reg(cpu, 0)));
+     } else {
+         const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+         // make the function return 0
+-- 
+2.56.0.windows.2
+

@@ -1,4 +1,4 @@
-# 05 — The recompiler (Phase 3)
+# 05 — The recompiler (Phases 3 and 4)
 
 `recomp/` turns a module's Thumb-2 code into C++ ahead of time
 ([D1](decisions.md), [D6](decisions.md)). Its input is `extracted/elf/` and
@@ -8,8 +8,9 @@ its output goes to `generated/`; neither is ever committed ([D2](decisions.md)).
 python -I recomp/recompile.py extracted/elf/<module>.elf generated/<module>
 . .\tools\devshell.ps1
 cmake -S recomp -B build/recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/recomp                  # gen_<module>.lib for each module
+cmake --build build/recomp                  # gen_<module>.lib and ssd_aot_<module>.dll
 .\recomp\run-tests.ps1                      # dynarmic comparison, all modules
+$env:SSD_AOT = "$PWD\build\recomp\ssd_aot_eboot.dll"   # then launch the fork as usual
 ```
 
 ## Layout
@@ -20,7 +21,9 @@ cmake --build build/recomp                  # gen_<module>.lib for each module
 | `recomp/armrecomp/semantics.py` | one instruction → C++ statements, its control-flow kind and the flags it reads and writes |
 | `recomp/armrecomp/emit.py` | one guest function → one C++ function: flag liveness, labels, `IT` as `if`, calls, returns, jump tables |
 | `recomp/recompile.py` | a whole module → `funcs.h`, `bucket_NNN.cpp` (about 64 KiB of guest code each), `table.cpp`, `report.txt` |
-| `recomp/runtime/armrecomp.h` | guest context, memory accessors, helpers, and the hooks the embedder provides |
+| `recomp/runtime/armrecomp.h` | memory accessors, helpers, and the hooks the embedder provides |
+| `recomp/runtime/aot_abi.h` | the guest context and the DLL interface (D7); the fork keeps a copy in `cpu/include/cpu/aot_abi.h` |
+| `recomp/runtime/aot_dll.cpp` | the DLL entry point `armrecomp_aot_init`: host hooks in, function table out |
 | `recomp/make_tests.py` | the comparison tests: `tests.cpp` (per instruction) and `functions.cpp` (whole leaf functions) |
 | `recomp/tests/harness.cpp` | runs every test natively and on dynarmic and compares the results |
 | `recomp/run-tests.ps1` | regenerate, build and run the tests for each module |
@@ -36,6 +39,15 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
 * **Memory:** `g_guest_base + (uint32_t)addr`, matching Vita3K's 4 GiB
   reservation. The test harness replaces the accessors
   (`RECOMP_CUSTOM_MEMORY`).
+  * Accesses are `volatile`. Other guest threads change memory at the same
+    time, so the C++ compiler must not cache a load (a spin-wait would
+    never end) or merge stores. On x64 these are plain `mov`s.
+  * `dmb`/`dsb` become `std::atomic_thread_fence(seq_cst)`.
+* **Loader-patched instructions:** Vita3K rewrites the `movw`/`movt` pairs
+  that load a variable import's address. The eboot has 52 pairs, taken
+  from the ELF's variable-import reference tables (`vitaelf.var_import_sites`).
+  Generated code decodes their immediates from guest memory at run time
+  (`thumb_mov_imm16`), and the code hash skips them.
 * **Flags:** a backward liveness pass over the instruction graph drops
   flag writes that no path reads. Calls kill the flags (AAPCS); escapes to
   the fallback CPU keep all of them live. In the eboot this drops 1,703,841
@@ -45,7 +57,9 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
   * `tbb`/`tbh` become `switch`;
   * `IT` blocks become one `if` per instruction. A 16-bit instruction inside
     an `IT` block doesn't set flags;
-  * `bl`/`blx #imm` to a recompiled function becomes a direct call;
+  * `bl`/`blx #imm` to a recompiled function becomes a direct call
+    (`RECOMP_CALL`). A `RECOMP_BISECT` build routes these calls through
+    `call_indirect` instead, so the runtime chooses per function;
   * a call to a function that isn't recompiled (NEON, ARM mode) or through a
     register goes to `call_indirect`;
   * a call to an import stub goes to `call_import`.
@@ -64,9 +78,13 @@ Every guest function becomes `void f_<address>(GuestContext *ctx)`.
     `FPNeg` as a sign-bit flip, as in ARM's pseudocode.
 * **`vmsr fpscr`** keeps only the bits ARMv7 VFP implements
   (`0xfff7009f`, as dynarmic does).
-* **Exclusives:** single-thread semantics in v0. `strex` succeeds when the
-  monitor is armed for its address. **Phase 4** turns this into a host
-  compare-and-swap.
+* **Exclusives:** `strex` is a host compare-and-swap. It succeeds when the
+  monitor is armed for its address and memory still holds the value `ldrex`
+  read. This is the same value-based protocol Vita3K's dynarmic uses, so
+  native and JIT threads interoperate.
+* **Counting:** every basic block starts with `RECOMP_COUNT(n)`. Builds
+  with `RECOMP_COUNT_INSNS` (the default) add `n` to `ctx->insns` for the
+  fork's counters.
 
 ## Coverage (1.30)
 
@@ -125,16 +143,16 @@ exception bits, and every memory write.
   since random inputs can make a loop run for ever. Flags are not compared,
   because dead flag writes are dropped.
 
-### Results (2026-10-10)
+### Results (2026-10-10, rerun after the Phase 4 changes)
 
 | | eboot | libc | libfios2 | libult |
 |---|---|---|---|---|
-| instruction tests (forms) | 5,363 (554) | 2,960 (380) | 2,175 (332) | 868 (152) |
+| instruction tests (forms) | 5,364 (554) | 2,960 (380) | 2,176 (332) | 869 (152) |
 | failing | **0** | **0** | **0** | **0** |
 | function tests (leaf functions with control flow) | 300 of 2,587 | 118 of 118 | 47 of 47 | 3 of 3 |
 | failing | **0** | **0** | **0** | **0** |
-| functions never returning in the budget | 21 | 1 | 3 | 0 |
-| runs skipped | 2,331 of 19,200 | 840 of 7,552 | 426 of 3,008 | 0 of 192 |
+| functions never returning in the budget | 22 | 1 | 2 | 0 |
+| runs skipped | 2,334 of 19,200 | 840 of 7,552 | 425 of 3,008 | 0 of 192 |
 
 Bugs the suite found while it was brought up:
 
@@ -159,8 +177,80 @@ Bugs the suite found while it was brought up:
 | sum of per-object compile times | 18 min for the eboot |
 | slowest bucket alone | `bucket_010`: 23 s, 435 MB peak working set |
 | `gen_eboot.lib` | 81.6 MB (libc 3.4, libfios2 1.8, libult 0.6) |
+| `ssd_aot_eboot.dll` | 50 MB; the eboot alone builds in 4–5 min |
 
 Compile time doesn't follow source size: the largest source file,
 `bucket_008` (4.2 MB), compiles in 3 s. **Hypothesis:** the slow buckets
 hold very large functions with many labels, which the optimiser handles
 badly. Memory is not the limit: `RECOMP_JOBS` can go up to the core count.
+
+## Runtime in the fork (Phase 4)
+
+Design: [D7](decisions.md). Code: the fork's `cpu/src/aot.cpp` (loading,
+verification, counters) and `cpu/src/dynarmic_cpu.cpp` (boundary, hooks,
+differential mode). These are patches 0007 and 0008.
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `SSD_AOT=<dll>[;<dll>...]` | load recompiled modules; without it the fork behaves like upstream |
+| `SSD_AOT_COUNT=1` | count guest instructions on both sides (dynarmic cycle counting) and profile JIT instructions by entry |
+| `SSD_AOT_STATS=<file>` | rewrite the counters to a file every 5 s, with the native share of the last interval |
+| `SSD_AOT_DIFF=<N>` | differential mode: check every Nth native call per thread |
+| `SSD_AOT_RANGE=<lo>-<hi>[,...]` | only these functions run natively (with a `RECOMP_BISECT` DLL, also for direct calls) |
+| `SSD_AOT_TRACE=<N>` | log the first N native calls with their registers |
+| `SSD_AOT_DUMP=<file>` | write the module's code as guest memory holds it at verification |
+| `SSD_TRACE_IMPORTS=<file>` | every HLE call with arguments and result, flushed per line |
+
+The log is asynchronous and loses its tail when the process is killed. Use
+`SSD_AOT_STATS` and `SSD_TRACE_IMPORTS` for anything that has to survive.
+`tools/stackdump.py <pid|image>` prints every thread's stack with PDB
+symbols, for hangs.
+
+### Results (1.30, Radeon 760M, 2026-10-10)
+
+| | Title | `ELDER DEFAULT MAP` |
+|---|---|---|
+| renders like the JIT build | yes | yes |
+| fps | 30 | 29–30 |
+| guest instructions native (5 s interval) | **26%** | **36%** |
+| escapes | 0 | 0 |
+| differential check (`SSD_AOT_DIFF=100`, 150 s) | — | 11,181 frames, 116,609 calls checked, **0 mismatches**, 22,387 skipped (HLE calls 20,372, atomics 2,015) |
+
+During loading the share is about 80%. In gameplay, most JIT
+instructions run in eboot functions that contain NEON, called from native
+code. The heaviest are:
+
+* `8188c41e`: 28 KB, 1,275 NEON instructions; float vectors (`vmla`/`vmul`
+  `q`, `vrsqrte`, `vbsl`);
+* `81a0c708`, `81a0a130`, `81a0e1f4`: integer NEON (`vmull`, `vshrn`,
+  `vqadd`, `vqshrn`);
+* `8186d012`, `8188bf80`, `81a1a104`, `81a166cc`;
+* libc through its LLE stubs.
+
+There are about 18 M native→JIT calls in a 60 s field run, from boot onward.
+
+### Bugs found on the way
+
+* **Variable imports** (above): the loader patches 104 instruction words
+  in the eboot. The first code-hash check caught them.
+* **HLE calls inside a run** must keep the caller's `halted` flag. Guest
+  callbacks that an HLE function runs (here, from
+  `sceGxmShaderPatcherCreate`) end on the thread's WFI halt instruction.
+  Before the fix, the main thread took that for its own exit and the boot
+  hung with every thread waiting.
+  * Found by bisecting native functions with `SSD_AOT_RANGE` down to the
+    entry `81277330`, then with a `RECOMP_BISECT` DLL to that function
+    alone, then by diffing `SSD_TRACE_IMPORTS` traces of a JIT run and the
+    failing run.
+* **Differential-mode harness bugs:**
+  * the shadow JIT needs its own exclusive monitor, because dynarmic asserts
+    without one;
+  * a halt left over from an aborted shadow run returns once;
+  * nested checks need separate results;
+  * stack slots holding the sentinel return address differ by design and
+    are ignored.
+  * A spinlock-protected allocator (`818953d6`) gave false mismatches when
+    another thread allocated between the shadow run and the native run, so
+    calls that store exclusively are skipped.

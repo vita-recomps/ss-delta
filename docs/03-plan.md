@@ -223,34 +223,61 @@ there are 0 unsupported instructions in all four modules, and both test
 suites pass. Size and compile time are in
 [05-recompiler](05-recompiler.md#build-130-eboot).
 
-## Phase 4 — Hybrid runtime in the Vita3K fork (L) ☐
+## Phase 4 — Hybrid runtime in the Vita3K fork (L) ◐
 
-* ☐ **AOT dispatch.**
-  * Before dynarmic runs a block at a function entry, look the address up in
-    the AOT table and call native code if present.
-  * Native code calling a missing guest address runs dynarmic with LR set
-    to a sentinel, then returns.
-* ☐ **HLE from native code.** Call Vita3K's `export_*` bridges with a
-  `CPUState` view of our guest context. Either keep one register layout or
-  copy at the boundary.
-* ☐ **Threads.** Each Vita3K guest thread (host thread) owns a guest context
-  that native code and dynarmic both see.
-  * `ldrex`/`strex` in native code become a host compare-and-swap (they
-    have single-thread semantics in v0).
-  * Callbacks (`run_callback`, the GXM display queue) enter native code when
-    the target is recompiled.
-* ☐ **Differential mode.**
-  * Per call: snapshot the context, run native, re-run on dynarmic against a
-    shadow, and compare registers plus written memory. Log mismatches.
-  * It is switchable per function and sampled, because it is slow.
-* ☐ Counters for the share of guest instructions run natively vs. on
-  dynarmic, per function.
+Design: [D7](decisions.md). Details and numbers:
+[05-recompiler](05-recompiler.md#runtime-in-the-fork-phase-4). Fork patches
+0007 (runtime) and 0008 (import trace).
 
-**Exit:**
+* ☑ **AOT dispatch.**
+  * The recompiled eboot is a DLL (`ssd_aot_eboot.dll`) that the fork loads
+    from `SSD_AOT` after checking its code hash against guest memory.
+  * Dynarmic's `PreCodeReadHook` ends every block at a recompiled entry, and
+    `DynarmicCPU::run` calls the native function.
+  * Native code calling a missing guest address runs a nested JIT loop with
+    `lr` set to a sentinel block, then returns.
+* ☑ **HLE from native code.** `call_import` calls the kernel's import handler
+  directly, with the registers copied into the JIT at the boundary. LLE
+  stubs (libc and the other bundled modules) run on the JIT.
+* ☑ **Threads.** Each `DynarmicCPU` owns its native guest context.
+  * `ldrex`/`strex` in native code are a host compare-and-swap against the
+    value `ldrex` read, the same protocol as Vita3K's dynarmic.
+  * Callbacks (`run_callback`) enter native code through the same hook.
+  * HLE calls made inside a run keep the caller's halted state (a guest
+    callback ends on WFI).
+  * A thread exiting with native frames on its stack unwinds them.
+  * Guest threads get 64 MiB host stacks while AOT is on.
+* ☑ **Differential mode** (`SSD_AOT_DIFF=N`).
+  * Every Nth native call per thread runs first on a shadow JIT, with
+    journaled writes that are undone afterwards. Then the native call runs,
+    and registers, VFP and the shadow's writes are compared.
+  * Calls that make HLE calls or exclusive stores are skipped.
+* ☑ Counters (`SSD_AOT_COUNT=1`, `SSD_AOT_STATS=<file>`):
+  * native and JIT instructions;
+  * transitions;
+  * escapes;
+  * JIT instructions by entry.
+* ☑ Debugging tools:
+  * `SSD_AOT_RANGE`, plus a `RECOMP_BISECT` DLL that routes direct calls
+    through the host, to bisect down to one native function;
+  * `SSD_AOT_TRACE`;
+  * `SSD_TRACE_IMPORTS`;
+  * `tools/stackdump.py`.
 
-* boot to the title with the AOT build loaded;
-* at least 80% of executed guest instructions native at the title;
-* zero differential mismatches over 1,000 frames of `ELDER DEFAULT MAP` idle.
+**Exit (2026-10-10):**
+
+* ☑ Boot to the title with the AOT build loaded. Title and field render the
+  same as the JIT build, at 30 fps.
+* ☐ **At least 80% of executed guest instructions native at the title.**
+  Measured: **26% at the title, 36% in the field.** Nearly all the
+  remaining JIT time is in eboot functions that contain NEON, such as
+  `8188c41e` (28 KB, 1,275 NEON instructions) and the integer-NEON
+  functions at `81a0a130`–`81a0e1f4`, plus libc through its LLE stubs.
+  Meeting this needs Phase 5's NEON layer; nothing else in Phase 4 can move
+  it.
+* ☑ Zero differential mismatches over 1,000 frames of `ELDER DEFAULT MAP`
+  idle. Measured: 11,181 frames and 116,609 checked calls, 0 mismatches.
+  22,387 calls were skipped (HLE calls 20,372; atomics 2,015).
 
 ## Phase 5 — NEON, ARM mode and the bundled modules (L) ☐
 
