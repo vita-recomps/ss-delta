@@ -1,0 +1,38 @@
+From 12ddd4fd61a6e04dfd76aee23b25e26b79b063e8 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:22:28 +0200
+Subject: [PATCH] cpu: an indirect call to ARM code without native code tries
+ the import stub path
+
+The eboot reaches some import stubs through pointers (__tls_get_addr, about
+8 million calls in a play session). call_indirect ran them on the JIT,
+which then entered the bound native export; the import path calls it (or
+the HLE function) directly and runs anything else on the JIT as before.
+Field: native->JIT calls from 2 M to 15 a minute.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/src/dynarmic_cpu.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/vita3k/cpu/src/dynarmic_cpu.cpp b/vita3k/cpu/src/dynarmic_cpu.cpp
+index f5b70048..76aa6dbb 100644
+--- a/vita3k/cpu/src/dynarmic_cpu.cpp
++++ b/vita3k/cpu/src/dynarmic_cpu.cpp
+@@ -877,6 +877,13 @@ void call_indirect(armrecomp::GuestContext *ctx, uint32_t addr) {
+         aot_owner(ctx).aot_call_native(addr, fn);
+         return;
+     }
++    if (!(addr & 1)) {
++        // ARM code without native code may be an import stub reached through a pointer (the
++        // eboot's __tls_get_addr): the import path calls its HLE function or native export
++        // directly, and runs anything else on the JIT as before
++        aot_owner(ctx).aot_call_import(addr);
++        return;
++    }
+     aot_owner(ctx).aot_call_guest(addr);
+ }
+ 
+-- 
+2.56.0.windows.2
+
