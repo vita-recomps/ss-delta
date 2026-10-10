@@ -346,9 +346,21 @@ and ult, and a clean differential log. **Met** (2026-10-10).
 * ☑ **libult**: the recompiled libult runs on the SceFiber HLE, with
   escapes and resume points at fiber switches ([D9](decisions.md)). Host
   fibers were tried and dropped.
-* ☐ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
+* ◐ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
   return clean "offline" results. No `sceNpAuthInit` dialogs.
-* ☐ **Firmware LLE modules.**
+  * ☑ Offline mode (fork patch 0023, on in `ss-delta.exe`): NetCtl reports
+    disconnected, HTTP/HTTPS/SSL use the HLE modules with no network, and
+    requests fail with `SCE_HTTP_ERROR_NETWORK`. `libhttp` and `libssl` no
+    longer run on the JIT. No dialogs at boot. The title's DOWNLOAD entry
+    shows an empty screen and waits, exactly as in Vita3K without offline
+    mode.
+  * ☐ NP (PSN), ad hoc, Near, Smart and Camera are Vita3K's HLE stubs.
+    Their offline answers are not checked yet; the game hasn't been seen
+    using them outside the online menus.
+* ☐ **Firmware LLE modules.** Still on the JIT in the field (a minute,
+  ~13,000 instructions): `sysmodule.skprx` (module loading), the entry at
+  `80001000`, and `libsceavplayer`'s player thread. Fonts (`libSceFt2`,
+  `libpvf`) and `libscemp4` are loaded as guest code too.
   * Decide per module whether to HLE it natively or keep it as recompiled
     guest code: fonts (pvf/ft2), AvPlayer/Mp4 (FMV is H.264/AAC MP4, so FFmpeg
     can replace it), fiber.

@@ -1,0 +1,161 @@
+From db53e6d75b29caf881039663942083c153118133 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 23:34:22 +0200
+Subject: [PATCH] Offline mode (Config::offline), on in ss-delta.exe: no
+ network at all
+
+As on a Vita in flight mode: NetCtl reports disconnected
+(sceNetCtlInetGetState, sceNetCtlInetGetInfo), HTTP, HTTPS and SSL use
+the HLE modules instead of loading libhttp/libssl as guest code, HTTP
+connections are created without resolving or opening sockets, and
+every request fails with SCE_HTTP_ERROR_NETWORK.
+
+Soul Sacrifice Delta's online services are gone; with offline mode its
+HTTP stack no longer runs on the JIT (field: 13,000 JIT instructions a
+minute, from 28,000) and nothing reaches the network.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/config/include/config/state.h   |  3 +++
+ vita3k/config/src/config.cpp           |  1 +
+ vita3k/module/src/load_module.cpp      |  6 ++++++
+ vita3k/modules/SceHttp/SceHttp.cpp     | 15 +++++++++++++--
+ vita3k/modules/SceNetCtl/SceNetCtl.cpp |  8 ++++++++
+ vita3k/ss-delta/main.cpp               |  2 ++
+ 6 files changed, 33 insertions(+), 2 deletions(-)
+
+diff --git a/vita3k/config/include/config/state.h b/vita3k/config/include/config/state.h
+index 6de85c10..d1028273 100644
+--- a/vita3k/config/include/config/state.h
++++ b/vita3k/config/include/config/state.h
+@@ -53,6 +53,9 @@ struct Config {
+     bool console = false;
+     bool load_app_list = false;
+     Frontend frontend = Frontend::qt;
++    // no network at all, as on a Vita in flight mode (ss-delta): NetCtl reports disconnected, HTTP
++    // and SSL use the HLE modules and every request fails; not saved in config.yml
++    bool offline = false;
+ 
+     fs::path get_vita_fs_path() const {
+         return fs_utils::utf8_to_path(vita_fs_path);
+diff --git a/vita3k/config/src/config.cpp b/vita3k/config/src/config.cpp
+index 71df10fc..5e79fc56 100644
+--- a/vita3k/config/src/config.cpp
++++ b/vita3k/config/src/config.cpp
+@@ -166,6 +166,7 @@ static void check_members(Config &self, const Config &rhs) {
+     self.fullscreen = rhs.fullscreen;
+     self.console = rhs.console;
+     self.frontend = rhs.frontend;
++    self.offline = rhs.offline;
+     self.app_args = rhs.app_args;
+     self.load_app_list = rhs.load_app_list;
+     self.self_path = rhs.self_path;
+diff --git a/vita3k/module/src/load_module.cpp b/vita3k/module/src/load_module.cpp
+index 54f03ff7..020e9194 100644
+--- a/vita3k/module/src/load_module.cpp
++++ b/vita3k/module/src/load_module.cpp
+@@ -166,6 +166,10 @@ static constexpr auto auto_lle_modules = {
+ bool is_lle_module(SceSysmoduleModuleId module_id, EmuEnvState &emuenv) {
+     const auto &paths = sysmodule_paths[module_id];
+ 
++    // offline (ss-delta): the HLE modules answer for HTTP and SSL, with no network
++    if (emuenv.cfg.offline && (module_id == SCE_SYSMODULE_HTTP || module_id == SCE_SYSMODULE_HTTPS || module_id == SCE_SYSMODULE_SSL))
++        return false;
++
+     // Do we know the module and its dependencies' paths?
+     const bool have_paths = !paths.empty();
+ 
+@@ -207,6 +211,8 @@ bool is_lle_module(const std::string &module_name, EmuEnvState &emuenv) {
+     static const bool hle_fiber = std::getenv("SSD_HLE_FIBER") || std::getenv("SSD_AOT");
+     if (hle_fiber && module_name == "libfiber")
+         return false;
++    if (emuenv.cfg.offline && (module_name == "libhttp" || module_name == "libssl"))
++        return false;
+     if (emuenv.cfg.current_config.modules_mode != ModulesMode::AUTOMATIC) {
+         if (std::ranges::contains(emuenv.cfg.current_config.lle_modules, module_name))
+             return true;
+diff --git a/vita3k/modules/SceHttp/SceHttp.cpp b/vita3k/modules/SceHttp/SceHttp.cpp
+index 78511b04..86819d54 100644
+--- a/vita3k/modules/SceHttp/SceHttp.cpp
++++ b/vita3k/modules/SceHttp/SceHttp.cpp
+@@ -249,6 +249,12 @@ EXPORT(SceInt, sceHttpCreateConnectionWithURL, SceInt tmplId, const char *url, S
+         port = parsed.port;
+     // If fifth character is an s (meaning https) use 443, else 80
+ 
++    if (emuenv.cfg.offline) {
++        // no resolving and no socket: requests on this connection fail (sceHttpSendRequest)
++        emuenv.http.connections.emplace(connId, SceConnection{ tmplId, urlStr, enableKeepalive, isSecure, -1 });
++        return connId;
++    }
++
+     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+     assert(sockfd);
+     if (sockfd < 0) {
+@@ -564,11 +570,13 @@ EXPORT(SceInt, sceHttpDeleteConnection, SceInt connId) {
+ 
+     if (connIt == emuenv.http.connections.end())
+         return RET_ERROR(SCE_HTTP_ERROR_INVALID_ID);
++    if (connIt->second.sockfd >= 0) {
+ #ifdef _WIN32
+-    closesocket(connIt->second.sockfd);
++        closesocket(connIt->second.sockfd);
+ #else
+-    close(connIt->second.sockfd);
++        close(connIt->second.sockfd);
+ #endif // _WIN32
++    }
+ 
+     emuenv.http.connections.erase(connIt);
+ 
+@@ -949,6 +957,9 @@ EXPORT(SceInt, sceHttpSendRequest, SceInt reqId, const char *postData, SceSize s
+     auto conn = emuenv.http.connections.find(req->second.connId);
+     auto tmpl = emuenv.http.templates.find(conn->second.tmplId);
+ 
++    if (emuenv.cfg.offline)
++        return RET_ERROR(SCE_HTTP_ERROR_NETWORK);
++
+     if (!emuenv.cfg.http_enable) {
+         req->second.res.statusCode = 200;
+         req->second.res.reasonPhrase = "OK";
+diff --git a/vita3k/modules/SceNetCtl/SceNetCtl.cpp b/vita3k/modules/SceNetCtl/SceNetCtl.cpp
+index df52ef33..b3e12994 100644
+--- a/vita3k/modules/SceNetCtl/SceNetCtl.cpp
++++ b/vita3k/modules/SceNetCtl/SceNetCtl.cpp
+@@ -574,6 +574,9 @@ EXPORT(int, sceNetCtlInetGetInfo, int code, SceNetCtlInfo *info) {
+         return RET_ERROR(SCE_NET_CTL_ERROR_INVALID_ADDR);
+     }
+ 
++    if (emuenv.cfg.offline)
++        return RET_ERROR(SCE_NET_CTL_ERROR_NOT_CONNECTED);
++
+     const auto addr = net_utils::get_selected_assigned_addr(emuenv.cfg.adhoc_addr);
+ 
+     switch (code) {
+@@ -680,6 +683,11 @@ EXPORT(int, sceNetCtlInetGetState, int *state) {
+         return RET_ERROR(SCE_NET_CTL_ERROR_INVALID_ADDR);
+     }
+ 
++    if (emuenv.cfg.offline) {
++        *state = SCE_NET_CTL_STATE_DISCONNECTED;
++        return 0;
++    }
++
+     *state = SCE_NET_CTL_STATE_IPOBTAINED;
+     return STUBBED("state = SCE_NETCTL_STATE_CONNECTED");
+ }
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index 4a653582..c004c36f 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -119,6 +119,8 @@ int main(int argc, char *argv[]) {
+     cfg.set_vita_fs_path(settings.vita_fs);
+     cfg.log_level = settings.log_level;
+     cfg.discord_rich_presence = false;
++    // the game's online services are gone: no network at all, as on a Vita in flight mode
++    cfg.offline = true;
+     cfg.check_for_updates = false;
+     // what the game needs (docs/decisions.md D4 update 4 in ss-delta): Vulkan, surface sync and
+     // high accuracy for its fog, haze and smoke, double-buffered memory mapping
+-- 
+2.56.0.windows.2
+
