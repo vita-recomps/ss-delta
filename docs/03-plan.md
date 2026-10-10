@@ -335,7 +335,9 @@ and ult, and a clean differential log. **Met** (2026-10-10).
     input at all (only Qt mapped keys); `ss-delta.exe` now maps them
     itself. The mouse is the touchscreen, and typed text reaches the
     game's keyboard dialogs.
-  * ☐ Its own name, icon and version resource (it reuses `Vita3K.rc`).
+  * ☑ Its own icon and version resource (`ss-delta.rc`: a plain delta, no
+    game artwork). The window shows the game's `icon0.png` from the
+    player's installed copy.
   * ☐ A self-contained folder: the exe, `data/`, `shaders-builtin/`, the
     runtime DLLs and the locally built `ssd_aot_*.dll`, without Qt.
 * ☑ **libult**: the recompiled libult runs on the SceFiber HLE, with
