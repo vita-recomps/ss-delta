@@ -320,6 +320,10 @@ sweep; the full playthrough is still open.
 
 * ☐ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
   config, and its own `ss-delta.ini` (like `decimation.ini`).
+  * Starting point: upstream's SDL front end (`Vita3K --frontend sdl -r
+    PCSA00152`) already runs the game in a plain SDL window. With all four
+    modules native it reached the field at 99.9% native (2026-10-10). Its
+    window title has no fps, so `v3kdrive` doesn't find it yet.
 * ☐ **libult** on host fibers behind its 13 imports (or keep the recompiled
   libult on top of a native `SceFiber`).
 * ☐ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
