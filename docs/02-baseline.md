@@ -755,6 +755,8 @@ foreground (`menu.png` in the repository root, not committed).
 * Verified on the Librom transition in the menu (scripted route): before,
   a large blurred copy of the book trails it; after, none. The field is
   unchanged (29.5 fps).
+* Confirmed by the user in `ss-delta.exe`: no ghost on the book or the
+  title butterfly (2026-10-10).
 
 ## Not measured yet
 
