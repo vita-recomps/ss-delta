@@ -1,0 +1,1089 @@
+From e2d9ed2ff57e5031e72485d17213fd53cd7a70dd Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 13:23:04 +0200
+Subject: [PATCH] ss-delta Phase 8: full-resolution 3D, touch bindings, save
+ import/export, screenshots
+
+* io: IOState::read_overrides serves a host file in place of another for
+  read-only opens and stats. ss-delta.exe uses it to hand the game a copy
+  of app0:resource/boot_config.ini with changed keys, leaving the
+  installed file alone: [display] full_3d (default on) sets ResoDown 0,
+  the game's own 960x544 3D mode instead of 720x408; [boot_config] passes
+  other keys through (case kept).
+* touch: TouchState::held, fingers a frontend holds at fixed points,
+  reported with the mouse's. ss-delta.ini [touch] binds keys and gamepad
+  buttons or triggers to them; the default holds the Black Rite icon
+  (56, 494) on F and the left trigger. Applied for an older ss-delta.ini
+  without the section too.
+* ctrl input pipe: "touch x y ... | none" and "screenshot <path>".
+* renderer: run_on_render_thread, tasks the render thread runs after a
+  frame. Screenshots (F12 to ss-delta/screenshots/, and the pipe's) are
+  read back there, at render resolution, and written on a thread of
+  their own; a read-back from the frontend thread raced the renderer's
+  queue submits (VK exception in stop_recording).
+* ss-delta.exe --import-save <folder|zip> / --export-save <folder>
+  [--quiet]: the save's four files (sizes checked), the previous save
+  kept in ss-delta/save-backups/, and Vita3K's slot record written so
+  the game's load screen lists the save.
+* [debug] frame_rate / frame_rate_delay: the 60 fps study. Sets the
+  game's frame timer period and display flip threshold in guest memory.
+  Not for play: a quest started at 60 fps never finishes loading.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/CMakeLists.txt                    |   1 +
+ vita3k/ctrl/include/ctrl/state.h         |   6 +
+ vita3k/ctrl/src/ctrl.cpp                 |  14 ++
+ vita3k/io/include/io/functions.h         |   2 +
+ vita3k/io/include/io/state.h             |   5 +
+ vita3k/io/src/io.cpp                     |  19 ++
+ vita3k/renderer/include/renderer/state.h |   9 +
+ vita3k/renderer/src/batch.cpp            |   9 +
+ vita3k/ss-delta/input.cpp                |  62 +++++++
+ vita3k/ss-delta/input.h                  |  21 +++
+ vita3k/ss-delta/main.cpp                 | 171 +++++++++++++++++-
+ vita3k/ss-delta/saves.cpp                | 211 +++++++++++++++++++++++
+ vita3k/ss-delta/saves.h                  |  38 ++++
+ vita3k/ss-delta/settings.cpp             |  60 ++++++-
+ vita3k/ss-delta/settings.h               |  16 ++
+ vita3k/touch/include/touch/state.h       |  11 ++
+ vita3k/touch/src/touch.cpp               |  12 ++
+ 17 files changed, 663 insertions(+), 4 deletions(-)
+ create mode 100644 vita3k/ss-delta/saves.cpp
+ create mode 100644 vita3k/ss-delta/saves.h
+
+diff --git a/vita3k/CMakeLists.txt b/vita3k/CMakeLists.txt
+index 28a9c32f..43c9d6cd 100644
+--- a/vita3k/CMakeLists.txt
++++ b/vita3k/CMakeLists.txt
+@@ -471,6 +471,7 @@ endif()
+ if(WIN32)
+ 	add_executable(ss-delta WIN32
+ 		ss-delta/main.cpp ss-delta/settings.cpp ss-delta/settings.h ss-delta/input.cpp ss-delta/input.h
++		ss-delta/saves.cpp ss-delta/saves.h
+ 		interface.cpp interface.h performance.cpp
+ 		util/src/vc_runtime_checker.cpp
+ 		resource.h ss-delta/ss-delta.ico ss-delta/ss-delta.rc Windows.manifest)
+diff --git a/vita3k/ctrl/include/ctrl/state.h b/vita3k/ctrl/include/ctrl/state.h
+index 6f97ccc6..5f24acb9 100644
+--- a/vita3k/ctrl/include/ctrl/state.h
++++ b/vita3k/ctrl/include/ctrl/state.h
+@@ -28,6 +28,8 @@
+ #include <map>
+ #include <memory>
+ #include <mutex>
++#include <string>
++#include <vector>
+ 
+ typedef std::shared_ptr<SDL_Gamepad> GamepadPtr;
+ typedef std::shared_ptr<SDL_Haptic> HapticPtr;
+@@ -76,6 +78,10 @@ struct CtrlState {
+     VirtualKeyboardState keyboard_state;
+     // buttons and sticks held by an external test driver (VITA3K_INPUT_PIPE, Windows only)
+     VirtualKeyboardState injected_state;
++    // PNG paths the test driver asked to save the current frame to (the frontend takes them)
++    std::vector<std::string> injected_screenshots;
++    // front-touch fingers the test driver holds, in 960x544 screen points (the frontend applies them)
++    std::vector<std::pair<float, float>> injected_touches;
+ 
+     std::atomic<bool> overlay_input_intercepted{ false };
+ 
+diff --git a/vita3k/ctrl/src/ctrl.cpp b/vita3k/ctrl/src/ctrl.cpp
+index 820fb1d0..236cf15f 100644
+--- a/vita3k/ctrl/src/ctrl.cpp
++++ b/vita3k/ctrl/src/ctrl.cpp
+@@ -145,6 +145,8 @@ void refresh_controllers(CtrlState &state, EmuEnvState &emuenv) {
+ // \\.\pipe\<value> and applies one command per line to CtrlState::injected_state:
+ //   hold <button> [<button>...]   hold exactly these buttons ("hold" or "hold none" releases all)
+ //   axes <lx> <ly> <rx> <ry>      stick positions in [-1, 1]
++//   touch <x> <y> ... | none      the frontend holds front-touch fingers at these points (960x544)
++//   screenshot <path>             the frontend saves the current frame there, at render resolution
+ // Buttons: cross circle square triangle up down left right l r l2 r2 l3 r3 start select.
+ // Nothing goes through the window, so automated runs never need keyboard focus.
+ static uint32_t parse_injected_button(const std::string &name) {
+@@ -187,6 +189,18 @@ static void apply_injected_command(CtrlState &state, const std::string &line) {
+             words >> axis;
+         std::lock_guard<std::mutex> guard(state.mutex);
+         std::copy(std::begin(axes), std::end(axes), state.injected_state.axes);
++    } else if (command == "touch") {
++        // touch <x> <y> [<x> <y>...] holds front-touch fingers at screen points; "touch none" lifts them
++        std::vector<std::pair<float, float>> points;
++        for (float x, y; words >> x >> y;)
++            points.emplace_back(x, y);
++        std::lock_guard<std::mutex> guard(state.mutex);
++        state.injected_touches = std::move(points);
++    } else if (command == "screenshot") {
++        std::string path;
++        std::getline(words >> std::ws, path);
++        std::lock_guard<std::mutex> guard(state.mutex);
++        state.injected_screenshots.push_back(path);
+     } else if (!command.empty()) {
+         LOG_WARN("Input pipe: unknown command '{}'", line);
+     }
+diff --git a/vita3k/io/include/io/functions.h b/vita3k/io/include/io/functions.h
+index 40b522c8..e22585d2 100644
+--- a/vita3k/io/include/io/functions.h
++++ b/vita3k/io/include/io/functions.h
+@@ -57,6 +57,8 @@ std::string translate_path(const char *path, VitaIoDevice &device, const IOState
+  */
+ bool copy_path(const fs::path &src_path, const fs::path &vita_fs_path, const std::string &app_title_id, const std::string &app_category);
+ 
++// the IOState::read_overrides key for a host path
++std::string read_override_key(const fs::path &host_path);
+ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name);
+ int read_file(void *data, IOState &io, SceUID fd, SceSize size, const char *export_name);
+ int write_file(SceUID fd, const void *data, SceSize size, const IOState &io, const char *export_name);
+diff --git a/vita3k/io/include/io/state.h b/vita3k/io/include/io/state.h
+index c5c75b01..e264b5fb 100644
+--- a/vita3k/io/include/io/state.h
++++ b/vita3k/io/include/io/state.h
+@@ -124,6 +124,11 @@ struct IOState {
+     std::unordered_map<std::string, std::string> cachemap;
+     bool case_isens_find_enabled = false;
+ 
++    // host files read in place of others (the key: the host path a read-only open or a stat
++    // resolves to, lexically normal and lower case): a frontend serves changed copies of game
++    // files without touching the installed ones
++    std::map<std::string, fs::path> read_overrides;
++
+     std::mutex overlay_mutex;
+     SceUID next_overlay_id = 1;
+     // overlay in the order they should be applied
+diff --git a/vita3k/io/src/io.cpp b/vita3k/io/src/io.cpp
+index 38ba16d8..8a0e5073 100644
+--- a/vita3k/io/src/io.cpp
++++ b/vita3k/io/src/io.cpp
+@@ -309,6 +309,18 @@ fs::path expand_path(IOState &io, const char *path, const fs::path &vita_fs_path
+     return device::construct_emulated_path(device, translated_path, vita_fs_path, io.redirect_stdio).string();
+ }
+ 
++std::string read_override_key(const fs::path &host_path) {
++    return string_utils::tolower(fs_utils::path_to_utf8(host_path.lexically_normal()));
++}
++
++// the host file to read for `host_path` (IOState::read_overrides), or `host_path` itself
++static fs::path apply_read_override(const IOState &io, const fs::path &host_path) {
++    if (io.read_overrides.empty())
++        return host_path;
++    const auto it = io.read_overrides.find(read_override_key(host_path));
++    return it == io.read_overrides.end() ? host_path : it->second;
++}
++
+ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path &vita_fs_path, const char *export_name) {
+     auto device = device::get_device(path);
+     auto device_for_icase = device;
+@@ -378,6 +390,12 @@ SceUID open_file(IOState &io, const char *path, const int flags, const fs::path
+     }
+ 
+     const auto normalized_path = device::construct_normalized_path(device, translated_path);
++    if (!(flags & (SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC | SCE_O_APPEND))) {
++        const auto read_path = apply_read_override(io, system_path);
++        if (read_path != system_path)
++            LOG_INFO("{}: {} is read from {}", export_name, path, read_path);
++        system_path = read_path;
++    }
+ 
+     FileStats f{ path, normalized_path, system_path, flags };
+     const auto fd = io.next_fd++;
+@@ -548,6 +566,7 @@ int stat_file(IOState &io, const char *file, SceIoStat *statp, const fs::path &v
+                 return IO_ERROR(SCE_ERROR_ERRNO_ENOENT);
+             }
+         }
++        file_path = apply_read_override(io, file_path);
+         LOG_TRACE_IF(log_file_op && log_file_stat, "{}: Statting file: {} ({})", export_name, file, device::construct_normalized_path(device, translated_path));
+     } else { // We have previously opened and defined the location
+         const auto fd_file = io.std_files.find(fd);
+diff --git a/vita3k/renderer/include/renderer/state.h b/vita3k/renderer/include/renderer/state.h
+index 710181d2..424c8e7c 100644
+--- a/vita3k/renderer/include/renderer/state.h
++++ b/vita3k/renderer/include/renderer/state.h
+@@ -126,6 +126,15 @@ struct State {
+     std::unique_ptr<std::thread> render_thread;
+     std::atomic<bool> render_abort{ false };
+ 
++    // work a frontend hands to the render thread, which alone uses the GPU queue (a frame dump
++    // from another thread races its submits); run after the next frame is rendered
++    std::mutex render_thread_tasks_mutex;
++    std::vector<std::function<void()>> render_thread_tasks;
++    void run_on_render_thread(std::function<void()> task) {
++        std::lock_guard<std::mutex> lock(render_thread_tasks_mutex);
++        render_thread_tasks.push_back(std::move(task));
++    }
++
+     std::vector<ShadersHash> precompile_queue;
+     bool precompile_requested = false;
+     std::atomic<bool> precompile_complete{ false };
+diff --git a/vita3k/renderer/src/batch.cpp b/vita3k/renderer/src/batch.cpp
+index 83168316..fe997dd1 100644
+--- a/vita3k/renderer/src/batch.cpp
++++ b/vita3k/renderer/src/batch.cpp
+@@ -272,6 +272,15 @@ static void render_loop(renderer::State &state, DisplayState &display, GxmState
+         }
+ 
+         state.render_frame(display, gxm, mem);
++        {
++            std::vector<std::function<void()>> tasks;
++            {
++                std::lock_guard<std::mutex> lock(state.render_thread_tasks_mutex);
++                tasks.swap(state.render_thread_tasks);
++            }
++            for (auto &task : tasks)
++                task();
++        }
+         state.swap_window();
+         state.async_flip_requested.store(false, std::memory_order_relaxed);
+ 
+diff --git a/vita3k/ss-delta/input.cpp b/vita3k/ss-delta/input.cpp
+index abfd63a2..42368cbc 100644
+--- a/vita3k/ss-delta/input.cpp
++++ b/vita3k/ss-delta/input.cpp
+@@ -21,10 +21,12 @@
+ #include <ctrl/ctrl.h>
+ #include <ctrl/state.h>
+ #include <emuenv/state.h>
++#include <touch/state.h>
+ #include <util/string_utils.h>
+ 
+ #include <SDL3/SDL_gamepad.h>
+ 
++#include <algorithm>
+ #include <cctype>
+ #include <mutex>
+ 
+@@ -239,4 +241,64 @@ void Keyboard::update(EmuEnvState &emuenv) {
+     kb.axes[3] = axis(cfg.keyboard_rightstick_up, cfg.keyboard_rightstick_up_alt, cfg.keyboard_rightstick_down, cfg.keyboard_rightstick_down_alt);
+ }
+ 
++void Touches::configure(const std::vector<Settings::TouchBinding> &touches, std::vector<std::string> &warnings) {
++    bindings.clear();
++    for (const auto &touch : touches) {
++        Binding b{ touch.x, touch.y };
++        for (const auto &key : split_list(touch.keys)) {
++            const auto code = parse_key(key);
++            if (code == PhysicalKeyCode::Unbound)
++                warnings.push_back("touch." + touch.name + "_key: unknown key \"" + key + "\"");
++            else if (b.keys.size() < 2)
++                b.keys.push_back(code);
++        }
++        const std::string pad = string_utils::tolower(trim(touch.gamepad));
++        if (pad == "lefttrigger")
++            b.gamepad_axis = SDL_GAMEPAD_AXIS_LEFT_TRIGGER;
++        else if (pad == "righttrigger")
++            b.gamepad_axis = SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
++        else if (!pad.empty()) {
++            const SDL_GamepadButton button = parse_gamepad_button(pad);
++            if (button == SDL_GAMEPAD_BUTTON_INVALID)
++                warnings.push_back("touch." + touch.name + "_gamepad: unknown gamepad button \"" + touch.gamepad + "\"");
++            else
++                b.gamepad_button = button;
++        }
++        bindings.push_back(std::move(b));
++    }
++}
++
++void Touches::update(EmuEnvState &emuenv, const Keyboard &keyboard) {
++    // the touch panel's units: the front panel is 1920x1088 over the 960x544 screen
++    const auto at = [](float x, float y, uint8_t id) {
++        return TouchState::HeldTouch{ static_cast<uint16_t>(x * 2), static_cast<uint16_t>(y * 2), id };
++    };
++    std::vector<TouchState::HeldTouch> held;
++    {
++        const std::lock_guard<std::mutex> lock(emuenv.ctrl.mutex);
++        for (size_t i = 0; i < bindings.size(); i++) {
++            const auto &b = bindings[i];
++            bool down = std::any_of(b.keys.begin(), b.keys.end(), [&](PhysicalKeyCode k) { return keyboard.down(k); });
++            for (const auto &[id, controller] : emuenv.ctrl.controllers) {
++                SDL_Gamepad *pad = controller.controller.get();
++                if (!pad)
++                    continue;
++                if (b.gamepad_button >= 0 && SDL_GetGamepadButton(pad, static_cast<SDL_GamepadButton>(b.gamepad_button)))
++                    down = true;
++                if (b.gamepad_axis >= 0 && SDL_GetGamepadAxis(pad, static_cast<SDL_GamepadAxis>(b.gamepad_axis)) > 16384)
++                    down = true;
++            }
++            // ids that stay the same while a finger is down, apart from the mouse's (0-127)
++            if (down)
++                held.push_back(at(b.x, b.y, static_cast<uint8_t>(100 + i % 16)));
++        }
++        for (size_t i = 0; i < emuenv.ctrl.injected_touches.size(); i++) {
++            const auto &[x, y] = emuenv.ctrl.injected_touches[i];
++            held.push_back(at(x, y, static_cast<uint8_t>(120 + i % 8)));
++        }
++    }
++    const std::lock_guard<std::mutex> lock(emuenv.touch.held_mutex);
++    emuenv.touch.held[SCE_TOUCH_PORT_FRONT] = std::move(held);
++}
++
+ } // namespace ss_delta
+diff --git a/vita3k/ss-delta/input.h b/vita3k/ss-delta/input.h
+index e761c853..2a8a9b7f 100644
+--- a/vita3k/ss-delta/input.h
++++ b/vita3k/ss-delta/input.h
+@@ -19,6 +19,8 @@
+ // unlike the Qt interface, does not turn keys into Vita buttons itself).
+ #pragma once
+ 
++#include "settings.h"
++
+ #include <input/physical_key.h>
+ 
+ #include <map>
+@@ -43,10 +45,29 @@ public:
+     void key(EmuEnvState &emuenv, int scancode, bool pressed);
+     // the window lost focus: release everything
+     void release_all(EmuEnvState &emuenv);
++    bool down(input::PhysicalKeyCode code) const { return pressed.contains(code); }
+ 
+ private:
+     void update(EmuEnvState &emuenv);
+     std::set<input::PhysicalKeyCode> pressed;
+ };
+ 
++// [touch]: fingers on the front touchscreen while their keys or gamepad button are held, and the
++// ones the test driver holds through the input pipe
++class Touches {
++public:
++    void configure(const std::vector<Settings::TouchBinding> &touches, std::vector<std::string> &warnings);
++    // once a frame: the held fingers into the touch state
++    void update(EmuEnvState &emuenv, const Keyboard &keyboard);
++
++private:
++    struct Binding {
++        float x = 0, y = 0;
++        std::vector<input::PhysicalKeyCode> keys;
++        int gamepad_button = -1; // SDL_GamepadButton
++        int gamepad_axis = -1; // SDL_GamepadAxis (a trigger)
++    };
++    std::vector<Binding> bindings;
++};
++
+ } // namespace ss_delta
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index d5ff421f..b4298212 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -22,17 +22,24 @@
+ 
+ #include "../archive.h"
+ #include "input.h"
++#include "saves.h"
+ #include "settings.h"
+ 
+ #include <app/functions.h>
+ #include <app/session_controller.h>
+ #include <config/state.h>
+ #include <config/version.h>
++#include <ctrl/state.h>
+ #include <display/state.h>
+ #include <emuenv/state.h>
+ #include <packages/functions.h>
+ #include <kernel/state.h>
++#include <mem/functions.h>
++#include <mem/ptr.h>
++#include <renderer/state.h>
+ #include <ime/functions.h>
++#include <io/functions.h>
++#include <io/state.h>
+ #include <modules/module_parent.h>
+ #include <sdl-frontend/session.h>
+ #include <touch/state.h>
+@@ -46,11 +53,18 @@
+ 
+ #include <SDL3/SDL.h>
+ #include <stb_image.h>
++#include <stb_image_write.h>
+ // provides WinMain for the windowed executable, which calls main below
+ #include <SDL3/SDL_main.h>
+ 
+ #include <chrono>
+ #include <cstdlib>
++#include <ctime>
++#include <iterator>
++#include <map>
++#include <mutex>
++#include <set>
++#include <thread>
+ #include <algorithm>
+ #include <string>
+ #include <vector>
+@@ -87,6 +101,98 @@ std::string select_recompiled_modules(const fs::path &dir) {
+     return list;
+ }
+ 
++// the frame on screen at render resolution (the internal resolution times `scale`) as a PNG: read
++// back on the render thread after its next frame (it alone submits to the GPU queue), written on
++// a thread of its own
++void save_frame(EmuEnvState &emuenv, const fs::path &path) {
++    if (!emuenv.renderer)
++        return;
++    renderer::State *const renderer = emuenv.renderer.get();
++    renderer->run_on_render_thread([renderer, &display = emuenv.display, path] {
++        uint32_t width = 0, height = 0;
++        std::vector<uint32_t> frame = renderer->dump_frame(display, width, height);
++        if (frame.empty() || frame.size() != static_cast<size_t>(width) * height) {
++            LOG_WARN("Screenshot: no frame to save");
++            return;
++        }
++        std::thread([frame = std::move(frame), width, height, path]() mutable {
++            for (uint32_t &pixel : frame)
++                pixel |= 0xFF000000;
++            if (path.has_parent_path())
++                fs::create_directories(path.parent_path());
++            const bool ok = stbi_write_png(fs_utils::path_to_utf8(path).c_str(), width, height, 4, frame.data(), width * 4) == 1;
++            LOG_INFO("Screenshot {}x{} {} {}", width, height, ok ? "saved to" : "could not be saved to", path);
++        }).detach();
++    });
++}
++
++// The game reads its engine settings from app0:resource/boot_config.ini, "Key<tab>Value" lines in
++// two blocks (development, then retail). Serves a copy, written to `dir`, in which each key of
++// `values` has the given value everywhere it is set; the installed file stays as it is.
++void override_boot_config(EmuEnvState &emuenv, const fs::path &dir, const std::map<std::string, std::string> &values) {
++    const fs::path installed = emuenv.vita_fs_path / "ux0" / "app" / TITLE_ID / "resource" / "boot_config.ini";
++    fs::ifstream in(installed, std::ios::binary);
++    if (!in) {
++        LOG_WARN("boot_config.ini not found at {}; the game's own settings stay", installed);
++        return;
++    }
++    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++    std::string out;
++    std::set<std::string> found;
++    size_t pos = 0;
++    while (pos < text.size()) {
++        size_t end = text.find('\n', pos);
++        end = end == std::string::npos ? text.size() : end + 1;
++        std::string line = text.substr(pos, end - pos);
++        const auto tab = line.find('\t');
++        if (tab != std::string::npos) {
++            const auto it = values.find(line.substr(0, tab));
++            if (it != values.end()) {
++                const bool crlf = line.ends_with("\r\n");
++                line = it->first + "\t" + it->second + (crlf ? "\r\n" : "\n");
++                found.insert(it->first);
++            }
++        }
++        out += line;
++        pos = end;
++    }
++    for (const auto &[key, value] : values) {
++        if (!found.contains(key))
++            out += key + "\t" + value + "\r\n";
++        LOG_INFO("boot_config.ini: {} {}", key, value);
++    }
++    fs::create_directories(dir);
++    const fs::path copy = dir / "boot_config.ini";
++    fs::ofstream(copy, std::ios::binary) << out;
++    emuenv.io.read_overrides[read_override_key(installed)] = copy;
++}
++
++// The 60 fps study (docs/03-plan.md Phase 8): the game paces its main loop with a frame timer
++// created for 30 fps (0x812ab888: movs r0, #30), whose period in microseconds is the first u64 of
++// the timer object (*(*0x81c957cc)), and flips every 2nd vblank (threshold at 0x81d3a630). Both
++// are data, so they are changed in guest memory once the game has set them up.
++// Returns true when done.
++bool apply_frame_rate(EmuEnvState &emuenv, int fps) {
++    auto &mem = emuenv.mem;
++    const auto u32 = [&](Address a) -> uint32_t * { return is_valid_addr(mem, a) ? Ptr<uint32_t>(a).get(mem) : nullptr; };
++    uint32_t *const holder = u32(0x81c957cc);
++    if (!holder || !*holder)
++        return false;
++    uint32_t *const timer = u32(*holder);
++    if (!timer || !*timer || !is_valid_addr(mem, *timer + 7))
++        return false;
++    uint64_t *const period = Ptr<uint64_t>(*timer).get(mem);
++    uint32_t *const flip = u32(0x81d3a630);
++    if (*period != 1000000 / 30 || !flip || *flip != 2) {
++        LOG_WARN("frame_rate: unexpected frame timer {} us / flip threshold {}; left alone", *period, flip ? *flip : 0);
++        return true;
++    }
++    *period = 1000000 / fps;
++    *flip = 60 / fps;
++    LOG_INFO("frame_rate: {} fps (frame timer {} us, flip every {} vblank)", fps, *period, *flip);
++    return true;
++}
++
+ } // namespace
+ 
+ int main(int argc, char *argv[]) {
+@@ -96,9 +202,13 @@ int main(int argc, char *argv[]) {
+     //   --dump-elfs <seconds>      run the game that long, writing every module as loaded to
+     //                              ss-delta/elfdumps/ (the input for recompiling), then quit
+     //   --vita-fs <folder>         the Vita file system to use instead of ss-delta.ini's
++    //   --import-save <folder|zip> copy a save (decrypted, e.g. from a Vita) in, keeping the old one
++    //   --export-save <folder>     copy the save out
++    //   --quiet                    no message box for the two above (the result is in the log)
+     std::vector<std::string> install_firmware, install_content;
+     double dump_elfs_seconds = 0;
+-    std::string vita_fs_override;
++    std::string vita_fs_override, import_save_from, export_save_to;
++    bool quiet = false;
+     for (int i = 1; i < argc; i++) {
+         const std::string arg = argv[i];
+         const bool has_value = i + 1 < argc;
+@@ -110,6 +220,12 @@ int main(int argc, char *argv[]) {
+             dump_elfs_seconds = std::atof(argv[++i]);
+         else if (arg == "--vita-fs" && has_value)
+             vita_fs_override = argv[++i];
++        else if (arg == "--import-save" && has_value)
++            import_save_from = argv[++i];
++        else if (arg == "--export-save" && has_value)
++            export_save_to = argv[++i];
++        else if (arg == "--quiet")
++            quiet = true;
+     }
+ 
+     Root root_paths;
+@@ -135,6 +251,21 @@ int main(int argc, char *argv[]) {
+     for (const auto &line : settings.warnings)
+         LOG_WARN("ss-delta.ini: ignored \"{}\"", line);
+ 
++    if (!import_save_from.empty() || !export_save_to.empty()) {
++        std::string message;
++        const bool ok = !import_save_from.empty()
++            ? ss_delta::import_save(settings.vita_fs, fs_utils::utf8_to_path(import_save_from), data_dir / "save-backups", message)
++            : ss_delta::export_save(settings.vita_fs, fs_utils::utf8_to_path(export_save_to), message);
++        if (ok)
++            LOG_INFO("Save: {}", message);
++        else
++            LOG_ERROR("Save: {}", message);
++        if (!quiet)
++            SDL_ShowSimpleMessageBox(ok ? SDL_MESSAGEBOX_INFORMATION : SDL_MESSAGEBOX_ERROR, WINDOW_NAME,
++                ("Save: " + message).c_str(), nullptr);
++        return ok ? 0 : 1;
++    }
++
+     if (settings.use_recompiled) {
+         const std::string modules = select_recompiled_modules(settings.recompiled);
+         LOG_INFO_IF(!modules.empty(), "Recompiled modules: {}", modules);
+@@ -248,9 +379,22 @@ int main(int argc, char *argv[]) {
+         return 1;
+     }
+ 
++    // the game's own engine settings that ss-delta.ini changes
++    std::map<std::string, std::string> boot_config{ { "ResoDown", settings.full_3d ? "0" : "1" } };
++    for (const auto &[key, value] : settings.boot_config)
++        boot_config[key] = value;
++    override_boot_config(emuenv, data_dir / "game", boot_config);
++
+     // window: size and fullscreen from the settings, F11 or Alt+Enter switch, frame rate in the title
+     SDL_Window *window = nullptr;
+     ss_delta::Keyboard keyboard;
++    ss_delta::Touches touches;
++    {
++        std::vector<std::string> touch_warnings;
++        touches.configure(settings.touches, touch_warnings);
++        for (const auto &line : touch_warnings)
++            LOG_WARN("ss-delta.ini: {}", line);
++    }
+     auto last_title = std::chrono::steady_clock::now();
+     sdl_frontend::Hooks hooks;
+     hooks.on_window = [&](SDL_Window *w) {
+@@ -290,7 +434,16 @@ int main(int argc, char *argv[]) {
+                 break;
+             if (event.key.key == SDLK_F11 || (event.key.key == SDLK_RETURN && (event.key.mod & SDL_KMOD_ALT)))
+                 SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN));
+-            else
++            else if (event.key.key == SDLK_F12) {
++                const auto t = std::time(nullptr);
++                std::tm local{};
++#ifdef _WIN32
++                localtime_s(&local, &t);
++#else
++                localtime_r(&t, &local);
++#endif
++                save_frame(emuenv, data_dir / "screenshots" / fmt::format("ss-delta_{:%Y-%m-%d_%H%M%S}.png", local));
++            } else
+                 keyboard.key(emuenv, event.key.scancode, true);
+             break;
+         case SDL_EVENT_KEY_UP:
+@@ -323,6 +476,7 @@ int main(int argc, char *argv[]) {
+         }
+     };
+     const auto session_start = std::chrono::steady_clock::now();
++    bool frame_rate_pending = settings.frame_rate != 30;
+     hooks.on_tick = [&] {
+         if (dump_elfs_seconds > 0 && std::chrono::steady_clock::now() - session_start > std::chrono::duration<double>(dump_elfs_seconds)) {
+             // --dump-elfs: the modules the game loads at boot are written; quit
+@@ -331,6 +485,19 @@ int main(int argc, char *argv[]) {
+             SDL_PushEvent(&quit);
+             dump_elfs_seconds = 0;
+         }
++        if (frame_rate_pending && std::chrono::steady_clock::now() - session_start > std::chrono::seconds(settings.frame_rate_delay)
++            && apply_frame_rate(emuenv, settings.frame_rate))
++            frame_rate_pending = false;
++        // [touch] bindings and the test driver's fingers
++        touches.update(emuenv, keyboard);
++        // screenshots the test driver asked for through the input pipe
++        std::vector<std::string> shots;
++        {
++            const std::lock_guard<std::mutex> lock(emuenv.ctrl.mutex);
++            shots.swap(emuenv.ctrl.injected_screenshots);
++        }
++        for (const auto &path : shots)
++            save_frame(emuenv, fs_utils::utf8_to_path(path));
+         // typed text reaches the game's keyboard dialogs (the player name) only while SDL's text
+         // input is on; the session handles Enter, Backspace and Escape itself
+         if (window) {
+diff --git a/vita3k/ss-delta/saves.cpp b/vita3k/ss-delta/saves.cpp
+new file mode 100644
+index 00000000..a96ca803
+--- /dev/null
++++ b/vita3k/ss-delta/saves.cpp
+@@ -0,0 +1,211 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++#include "saves.h"
++
++#include <emuenv/app_util.h>
++#include <util/string_utils.h>
++
++#include <miniz.h>
++
++#include <array>
++#include <cstring>
++#include <ctime>
++#include <iterator>
++#include <map>
++#include <vector>
++
++namespace ss_delta {
++
++namespace {
++
++static_assert(sizeof(SceAppUtilSaveDataSlotParam) == 844);
++
++struct SaveFile {
++    const char *name;
++    size_t size;
++};
++// the game's files and their sizes in 1.30 (a check that a source is this game's save)
++constexpr std::array<SaveFile, 2> FILES{ { { "datag0001", 979168 }, { "system", 1556 } } };
++
++fs::path save_dir(const fs::path &vita_fs) {
++    return vita_fs / "ux0" / "user" / "00" / "savedata" / "PCSA00152";
++}
++
++std::string lower_name(const std::string &path) {
++    const auto slash = path.find_last_of("/\\");
++    return string_utils::tolower(slash == std::string::npos ? path : path.substr(slash + 1));
++}
++
++// "datag0001.bin" -> contents, for the files of FILES (.bin and .bak) found in a folder or zip
++using Found = std::map<std::string, std::vector<uint8_t>>;
++
++bool wanted(const std::string &name, size_t size) {
++    for (const auto &f : FILES)
++        if ((name == std::string(f.name) + ".bin" || name == std::string(f.name) + ".bak") && size == f.size)
++            return true;
++    return false;
++}
++
++bool read_folder(const fs::path &folder, Found &found, std::string &message) {
++    for (const auto &entry : fs::recursive_directory_iterator(folder)) {
++        if (!fs::is_regular_file(entry.path()))
++            continue;
++        const auto name = lower_name(fs_utils::path_to_utf8(entry.path()));
++        if (!wanted(name, static_cast<size_t>(fs::file_size(entry.path()))) || found.contains(name))
++            continue;
++        fs::ifstream in(entry.path(), std::ios::binary);
++        found[name].assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
++    }
++    return true;
++}
++
++bool read_zip(const fs::path &zip_path, Found &found, std::string &message) {
++    mz_zip_archive zip{};
++    if (!mz_zip_reader_init_file(&zip, fs_utils::path_to_utf8(zip_path).c_str(), 0)) {
++        message = "cannot read the zip file " + fs_utils::path_to_utf8(zip_path);
++        return false;
++    }
++    for (mz_uint i = 0; i < mz_zip_reader_get_num_files(&zip); i++) {
++        mz_zip_archive_file_stat stat{};
++        if (!mz_zip_reader_file_stat(&zip, i, &stat) || stat.m_is_directory)
++            continue;
++        // only the known names, at their known sizes: nothing else in the zip is read
++        const auto name = lower_name(stat.m_filename);
++        if (!wanted(name, static_cast<size_t>(stat.m_uncomp_size)) || found.contains(name))
++            continue;
++        std::vector<uint8_t> data(static_cast<size_t>(stat.m_uncomp_size));
++        if (mz_zip_reader_extract_to_mem(&zip, i, data.data(), data.size(), 0))
++            found[name] = std::move(data);
++    }
++    mz_zip_reader_end(&zip);
++    return true;
++}
++
++bool write_file(const fs::path &path, const void *data, size_t size) {
++    fs::ofstream out(path, std::ios::binary | std::ios::trunc);
++    out.write(static_cast<const char *>(data), static_cast<std::streamsize>(size));
++    return static_cast<bool>(out);
++}
++
++std::string timestamp() {
++    const auto t = std::time(nullptr);
++    std::tm local{};
++#ifdef _WIN32
++    localtime_s(&local, &t);
++#else
++    localtime_r(&t, &local);
++#endif
++    char buf[32];
++    std::strftime(buf, sizeof(buf), "%Y-%m-%d_%H%M%S", &local);
++    return buf;
++}
++
++// Vita3K's record of save slot 1, which the game's load screen lists; the game rewrites it with
++// its own title and details the next time it saves
++SceAppUtilSaveDataSlotParam slot_param() {
++    SceAppUtilSaveDataSlotParam param{};
++    std::strncpy(param.title, "Save data 1", sizeof(param.title) - 1);
++    std::strncpy(param.subTitle, "Imported", sizeof(param.subTitle) - 1);
++    std::strncpy(param.iconPath, "app0:/resource/data/icon/us/icon_g_us.png", sizeof(param.iconPath) - 1);
++    param.sizeKiB = (FILES[0].size * 2 + FILES[1].size * 2 + 1023) / 1024;
++    const auto t = std::time(nullptr);
++    std::tm local{};
++#ifdef _WIN32
++    localtime_s(&local, &t);
++#else
++    localtime_r(&t, &local);
++#endif
++    param.modifiedTime.year = static_cast<unsigned short>(local.tm_year + 1900);
++    param.modifiedTime.month = static_cast<unsigned short>(local.tm_mon + 1);
++    param.modifiedTime.day = static_cast<unsigned short>(local.tm_mday);
++    param.modifiedTime.hour = static_cast<unsigned short>(local.tm_hour);
++    param.modifiedTime.minute = static_cast<unsigned short>(local.tm_min);
++    param.modifiedTime.second = static_cast<unsigned short>(local.tm_sec);
++    return param;
++}
++
++} // namespace
++
++bool import_save(const fs::path &vita_fs, const fs::path &source, const fs::path &backup_dir, std::string &message) {
++    Found found;
++    if (fs::is_directory(source)) {
++        if (!read_folder(source, found, message))
++            return false;
++    } else if (fs::is_regular_file(source)) {
++        if (!read_zip(source, found, message))
++            return false;
++    } else {
++        message = fs_utils::path_to_utf8(source) + " is neither a folder nor a zip file";
++        return false;
++    }
++    for (const auto &f : FILES) {
++        const std::string bin = std::string(f.name) + ".bin", bak = std::string(f.name) + ".bak";
++        if (!found.contains(bin)) {
++            message = "no " + bin + " of " + std::to_string(f.size) + " bytes in " + fs_utils::path_to_utf8(source)
++                + " (is it a Soul Sacrifice Delta 1.30 save, decrypted?)";
++            return false;
++        }
++        if (!found.contains(bak))
++            found[bak] = found[bin];
++    }
++
++    const fs::path dir = save_dir(vita_fs);
++    // the save there now goes to the backup folder first
++    if (fs::exists(dir) && !fs::is_empty(dir)) {
++        const fs::path backup = backup_dir / timestamp();
++        fs::create_directories(backup);
++        for (const auto &entry : fs::directory_iterator(dir)) {
++            if (fs::is_regular_file(entry.path()))
++                fs::copy_file(entry.path(), backup / entry.path().filename(), fs::copy_options::overwrite_existing);
++        }
++        message = "the previous save is in " + fs_utils::path_to_utf8(backup) + "; ";
++    }
++    fs::create_directories(dir);
++    for (const auto &[name, data] : found) {
++        if (!write_file(dir / name, data.data(), data.size())) {
++            message += "writing " + name + " failed";
++            return false;
++        }
++    }
++    const auto param = slot_param();
++    if (!write_file(dir / "SlotParam_1.bin", &param, sizeof(param))) {
++        message += "writing SlotParam_1.bin failed";
++        return false;
++    }
++    message += "imported into " + fs_utils::path_to_utf8(dir);
++    return true;
++}
++
++bool export_save(const fs::path &vita_fs, const fs::path &dest, std::string &message) {
++    const fs::path dir = save_dir(vita_fs);
++    fs::create_directories(dest);
++    for (const auto &f : FILES) {
++        for (const char *ext : { ".bin", ".bak" }) {
++            const std::string name = std::string(f.name) + ext;
++            if (!fs::exists(dir / name)) {
++                message = "no save to export: " + fs_utils::path_to_utf8(dir / name) + " is missing";
++                return false;
++            }
++            fs::copy_file(dir / name, dest / name, fs::copy_options::overwrite_existing);
++        }
++    }
++    message = "exported to " + fs_utils::path_to_utf8(dest);
++    return true;
++}
++
++} // namespace ss_delta
+diff --git a/vita3k/ss-delta/saves.h b/vita3k/ss-delta/saves.h
+new file mode 100644
+index 00000000..d5370f00
+--- /dev/null
++++ b/vita3k/ss-delta/saves.h
+@@ -0,0 +1,38 @@
++// Vita3K emulator project
++// Copyright (C) 2026 Vita3K team
++//
++// This program is free software; you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation; either version 2 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License along
++// with this program; if not, write to the Free Software Foundation, Inc.,
++// 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
++
++// The game's save on the PC: ux0:user/00/savedata/PCSA00152/ in the Vita file system holds
++// datag0001.bin and system.bin, each with a .bak copy, unencrypted, plus Vita3K's record of the
++// game's save slot 1 (SlotParam_1.bin). A save decrypted on a Vita (VitaShell, Apollo) has the
++// same four files.
++#pragma once
++
++#include <util/fs.h>
++
++#include <string>
++
++namespace ss_delta {
++
++// Copies a save into the Vita file system from a folder or a .zip that holds datag0001.bin and
++// system.bin (in any subfolder; .bak copies optional). The save there is moved to
++// `backup_dir`/<date and time>/ first. Returns false with the reason in `message`.
++bool import_save(const fs::path &vita_fs, const fs::path &source, const fs::path &backup_dir, std::string &message);
++
++// Copies the save's four files to the folder `dest`.
++bool export_save(const fs::path &vita_fs, const fs::path &dest, std::string &message);
++
++} // namespace ss_delta
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index a9ef8655..78727bc0 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -40,11 +40,15 @@ constexpr const char *DEFAULT_INI = R"(; ss-delta settings. Lines starting with
+ ;recompiled = C:/Games/ss-delta
+ 
+ [display]
++; Draw the 3D at 960x544 like the menus and HUD (the game's own ResoDown 0). false: 720x408,
++; upscaled, as on the Vita.
++full_3d = true
+ ; Internal resolution as a multiple of the Vita's 960x544 (1-8, fractions allowed).
+ scale = 1
+ ; Window size as a multiple of 960x544 (1-4).
+ window_scale = 1
+-; Start in fullscreen. F11 or Alt+Enter switches while playing.
++; Start in fullscreen. F11 or Alt+Enter switches while playing. F12 saves a screenshot to
++; ss-delta/screenshots/ next to ss-delta.exe.
+ fullscreen = false
+ vsync = true
+ ; How the picture is scaled to the window: Bilinear, Nearest, Bicubic, FXAA, FSR.
+@@ -111,6 +115,21 @@ up = dpup
+ down = dpdown
+ left = dpleft
+ right = dpright
++
++[touch]
++; Keys and gamepad buttons that hold a finger on the touchscreen for as long as they are held.
++; Each touch is <name> = x, y (a point on the 960x544 screen), with <name>_key (up to two keys,
++; as in [keyboard]) and <name>_gamepad (one button as in [gamepad], or lefttrigger or
++; righttrigger). The mouse is the touchscreen as well.
++; Black Rite: touch and hold the Black Rite icon, lower left during a quest.
++black_rite = 56, 494
++black_rite_key = F
++black_rite_gamepad = lefttrigger
++
++[boot_config]
++; Engine settings passed to the game's boot_config.ini (Key = value, case as in that file), for
++; experiments; they win over the settings above. The installed file is not changed.
++;FPS = 30
+ )";
+ 
+ std::string trim(const std::string &s) {
+@@ -151,7 +170,11 @@ Settings load_settings(const fs::path &dir) {
+                 out.warnings.push_back(line);
+                 continue;
+             }
+-            values[section + "." + string_utils::tolower(trim(line.substr(0, eq)))] = trim(line.substr(eq + 1));
++            // the game's own keys are case-sensitive: kept as written
++            if (section == "boot_config")
++                out.boot_config[trim(line.substr(0, eq))] = trim(line.substr(eq + 1));
++            else
++                values[section + "." + string_utils::tolower(trim(line.substr(0, eq)))] = trim(line.substr(eq + 1));
+         }
+     }
+ 
+@@ -185,6 +208,7 @@ Settings load_settings(const fs::path &dir) {
+         out.vita_fs = fs_utils::utf8_to_path(*v) / "";
+     if (const auto v = get("paths.recompiled"))
+         out.recompiled = fs_utils::utf8_to_path(*v);
++    get_bool("display.full_3d", out.full_3d);
+     get_number("display.scale", out.scale, 1.0f, 8.0f);
+     get_number("display.window_scale", out.window_scale, 1, 4);
+     get_bool("display.fullscreen", out.fullscreen);
+@@ -211,12 +235,44 @@ Settings load_settings(const fs::path &dir) {
+             out.warnings.push_back("debug.log_level = " + *v);
+     }
+     get_bool("debug.validation_layer", out.validation_layer);
++    get_number("debug.frame_rate", out.frame_rate, 30, 60);
++    get_number("debug.frame_rate_delay", out.frame_rate_delay, 0, 3600);
++    std::map<std::string, Settings::TouchBinding> touches;
+     for (const auto &[key, value] : values) {
+         if (key.starts_with("keyboard."))
+             out.keyboard[key.substr(9)] = value;
+         else if (key.starts_with("gamepad."))
+             out.gamepad[key.substr(8)] = value;
++        else if (key.starts_with("touch.")) {
++            const std::string name = key.substr(6);
++            if (name.ends_with("_key"))
++                touches[name.substr(0, name.size() - 4)].keys = value;
++            else if (name.ends_with("_gamepad"))
++                touches[name.substr(0, name.size() - 8)].gamepad = value;
++            else {
++                auto &touch = touches[name];
++                char comma = 0;
++                std::istringstream in(value);
++                if (!(in >> touch.x >> comma >> touch.y) || comma != ',' || touch.x < 0 || touch.x >= 960 || touch.y < 0 || touch.y >= 544) {
++                    out.warnings.push_back(key + " = " + value + " (x, y within 960x544)");
++                    touch.x = touch.y = -1;
++                }
++            }
++        }
++    }
++    for (auto &[name, touch] : touches) {
++        if (touch.x < 0)
++            continue;
++        if (!values.contains("touch." + name)) {
++            out.warnings.push_back("touch." + name + "_key/_gamepad without touch." + name + " = x, y");
++            continue;
++        }
++        touch.name = name;
++        out.touches.push_back(touch);
+     }
++    // an ss-delta.ini from before [touch] existed: the default's Black Rite binding
++    if (std::none_of(values.begin(), values.end(), [](const auto &kv) { return kv.first.starts_with("touch."); }))
++        out.touches.push_back({ "black_rite", 56, 494, "F", "lefttrigger" });
+     return out;
+ }
+ 
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index 7873b646..62e515cf 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -31,6 +31,7 @@ struct Settings {
+     fs::path vita_fs; // the Vita file system holding the installed game (ux0/app/PCSA00152)
+     fs::path recompiled; // where ssd_aot_<module>.dll are
+     // [display]
++    bool full_3d = true; // 3D at 960x544 (boot_config.ini ResoDown 0) instead of 720x408
+     float scale = 1.0f; // internal resolution multiplier
+     int window_scale = 1; // window size as a multiple of 960x544
+     bool fullscreen = false;
+@@ -44,10 +45,25 @@ struct Settings {
+     // [debug]
+     int log_level = 2; // spdlog: 0 trace ... 6 off
+     bool validation_layer = false;
++    int frame_rate = 30; // the game's frame timer and display flip rate (study: 30 or 60)
++    int frame_rate_delay = 0; // seconds after start before frame_rate applies (study)
+ 
+     // [keyboard] and [gamepad]: Vita button -> keys / gamepad button, applied by input.cpp
+     std::map<std::string, std::string> keyboard, gamepad;
+ 
++    // [touch]: a finger held on the front touchscreen at a point while its keys or gamepad
++    // button are held (input.cpp)
++    struct TouchBinding {
++        std::string name;
++        float x = 0, y = 0; // 960x544 screen pixels
++        std::string keys; // up to two, as in [keyboard]
++        std::string gamepad; // one button as in [gamepad], or lefttrigger / righttrigger
++    };
++    std::vector<TouchBinding> touches;
++
++    // [boot_config]: keys of the game's boot_config.ini to override, case kept
++    std::map<std::string, std::string> boot_config;
++
+     std::vector<std::string> warnings; // lines that could not be used
+ };
+ 
+diff --git a/vita3k/touch/include/touch/state.h b/vita3k/touch/include/touch/state.h
+index 5128860a..9afa0c8e 100644
+--- a/vita3k/touch/include/touch/state.h
++++ b/vita3k/touch/include/touch/state.h
+@@ -5,6 +5,8 @@
+ #include <touch/touch.h>
+ 
+ #include <algorithm>
++#include <mutex>
++#include <vector>
+ 
+ struct TouchState {
+     SceTouchSamplingState touch_mode[2] = { SCE_TOUCH_SAMPLING_STATE_STOP, SCE_TOUCH_SAMPLING_STATE_STOP };
+@@ -15,6 +17,15 @@ struct TouchState {
+     bool mouse_button_right = false;
+     bool renderer_focused = false;
+     SceTouchPortType touchscreen_port = SCE_TOUCH_PORT_FRONT;
++
++    // fingers a frontend holds at fixed points (keys or buttons standing in for touches), in
++    // touch-panel units (front 1920x1088), reported with the mouse's; set under held_mutex
++    struct HeldTouch {
++        uint16_t x = 0, y = 0;
++        uint8_t id = 0;
++    };
++    std::mutex held_mutex;
++    std::vector<HeldTouch> held[2];
+     SceTouchData touch_buffers[MAX_TOUCH_BUFFER_SAVED][2] = {};
+     int touch_buffer_idx = 0;
+     bool is_touchpad = false;
+diff --git a/vita3k/touch/src/touch.cpp b/vita3k/touch/src/touch.cpp
+index ec982f49..90f52499 100644
+--- a/vita3k/touch/src/touch.cpp
++++ b/vita3k/touch/src/touch.cpp
+@@ -178,6 +178,18 @@ void touch_vsync_update(EmuEnvState &emuenv) {
+             } else {
+                 touch.is_touched[port] = false;
+             }
++
++            if (emuenv.touch.touch_mode[port]) {
++                std::lock_guard<std::mutex> lock(touch.held_mutex);
++                for (const auto &held : touch.held[port]) {
++                    if (data->reportNum >= SCE_TOUCH_MAX_REPORT)
++                        break;
++                    data->report[data->reportNum].x = held.x;
++                    data->report[data->reportNum].y = held.y;
++                    data->report[data->reportNum].id = held.id;
++                    ++data->reportNum;
++                }
++            }
+         }
+     }
+ 
+-- 
+2.56.0.windows.2
+

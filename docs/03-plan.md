@@ -437,23 +437,51 @@ final battle. No known rendering bugs remain. The ST17 ground shimmer is
 also there on a real Vita. Left for a playtest: the endings after
 defeating Magusar.
 
-## Phase 8 — PC features (M) ☐
+## Phase 8 — PC features (M) ◐
 
-* ☐ **Internal resolution.**
-  * Raise the 720×408 render target (the VitaGrafix sites
-    `0x818282A6`/`0x818282AC` and the UV-scale floats) to a multiple of the
-    output, and combine with Vita3K's resolution multiplier.
-  * Widescreen/aspect handling.
-* ☐ Remappable keyboard/controller input (SDL), plus touch/rear-touch
-  substitutes for the features that need them. Mouse camera is optional.
-* ☐ 60 fps study. Find the frame-locked logic first; ship only if it is safe.
-* ☐ Saves:
-  * stored on the PC;
-  * import of real Vita saves;
-  * DLC entitlement flag (the DLC data ships in 1.30).
+Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
+[D13](decisions.md).
+
+* ☑ **Internal resolution** (D13).
+  * The 720×408 target is the game's own `ResoDown 1`; `ResoDown 0`
+    renders the 3D at 960×544, the framebuffer's size. `ss-delta.ini`
+    `full_3d` (default on) serves it through a `boot_config.ini` copy
+    (fork patch 0029). The installed file is unchanged.
+  * Vita3K's `scale` multiplies that: at 2 the 3D is 1920×1088. All 50
+    map IDs swept at `full_3d` + scale 2: correct, 29.5–29.7 fps on the
+    Radeon 760M.
+  * Widescreen: the Vita's 960×544 is already 16:9 (to within 0.7%), so
+    fullscreen on a 16:9 display has no bars to fill. Ultrawide would need
+    the game's projection changed; not planned.
+* ◐ **Input.** Keyboard/gamepad remapping was done in Phase 6. Touch:
+  * The game's text names one touch-only action, the Black Rite ("touch
+    and hold the Black Rite icon"). `[touch]` bindings hold a finger at a
+    point while a key or gamepad button is held. The default puts the
+    icon (56, 494) on F and the left trigger.
+  * Injected touches reach the game (a tap advances the title screen).
+    The Black Rite binding itself is untested: the icon didn't appear in
+    the scripted runs. It needs a playtest.
+  * The rest takes buttons or the mouse: the post-battle "touch enemies
+    or allies" choice, pacts in Phantom Quests, the quest-intro skip
+    (START also skips it).
+* ◐ **60 fps study** (not shipped; [02-baseline](02-baseline.md#60-fps-study)).
+  * The cap is the main loop's frame timer, created for 30 fps
+    (`0x812ab888`), plus the display flip threshold of 2 vblanks.
+  * `[debug] frame_rate = 60` sets both in memory: 57 fps on this
+    machine, and player movement keeps its speed.
+  * Blocker: a quest started at 60 fps never finishes loading.
+* ◐ **Saves.**
+  * ☑ Stored on the PC, in the Vita file system folder.
+  * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
+    (decrypted saves, e.g. from VitaShell or Apollo), with
+    `--export-save`. Tested with a story-complete Apollo save.
+  * ☐ DLC entitlement: the game has a `ForceDLC` engine flag. Some of the
+    DLC was sold, so turning it on is the owner's call. Not done.
 
 **Exit:** a full playthrough is possible on keyboard/controller at
-≥ 2× internal resolution.
+≥ 2× internal resolution. Status (2026-10-11): ≥ 2× is met on every map
+(3D at 1920×1088, 30 fps). Still needed: a playtest of the Black Rite
+binding and of a longer stretch on keyboard and controller.
 
 ## Phase 9 — Compatibility pass (M) ☐
 

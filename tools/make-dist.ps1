@@ -54,7 +54,15 @@ recompiled to native code (ssd_aot_*.dll, built from your own dump).
 
 Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
 Alt+Enter while playing), filter, volume, keyboard and gamepad bindings. The
-mouse is the touchscreen: left button front, right button rear.
+mouse is the touchscreen: left button front, right button rear. The Black
+Rite icon (touch and hold) is also on F and the gamepad's left trigger
+([touch] in ss-delta.ini). F12 saves a screenshot to ss-delta\screenshots.
+
+Saves are in the Vita file system (ux0\user\00\savedata\PCSA00152). To use a
+save from a Vita (decrypted, e.g. with VitaShell or Apollo), run
+  ss-delta.exe --import-save <folder or .zip>
+The save it replaces is kept in ss-delta\save-backups. To copy the save
+out: ss-delta.exe --export-save <folder>.
 
 ss-delta is built from Vita3K (https://github.com/Vita3K/Vita3K) and is under
 the GNU GPL version 2. The ssd_aot_*.dll files and the game files are derived

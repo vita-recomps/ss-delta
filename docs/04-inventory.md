@@ -155,9 +155,22 @@ Parsed from the EHABI tables (`vitaelf.exception_scopes`):
   argument.
   * `config.ini` also has `SyncFps`: `true` in the dev block, `false` in
     the retail block.
-  * Next (Phase 8): follow the stored value to the main loop.
-* **Render targets.** The main 3D target (720×408, the VitaGrafix sites
-  `0x818282a6`/`0x818282ac`) is created in `0x81828272`.
+  * Followed in Phase 8: `FPS` does not set the frame rate. The parsed
+    config (`*0x81c9a48c`) has `FPS` at `+0` and `ResoDown` at `+4`.
+* **Frame limiter** (Phase 8, 02-baseline "60 fps study").
+  * The main loop `0x812ac026` asks the frame timer `*(*0x81c957cc)`
+    (`0x81804c88`) for the time left and sleeps it through `0x81804128`
+    (`sceKernelDelayThread`).
+  * The timer is created for 30 fps at `0x812ab888` (`movs r0, #0x1e` →
+    `0x812ac6b2` → constructor `0x81804c4c`). The period in µs is the
+    object's first u64.
+  * The flip threshold comes from static data `0x81c9578c` (`{0, 0, 2,
+    1}`): its `+8` is copied to `0x81d3a630` by `0x81827cd0`.
+  * Frame time for game code: `0x812ac73c`.
+* **Resolution mode** (Phase 8): `0x812ab2b8` passes the config's
+  `ResoDown` through `0x81828b0e` to `0x81828272` (table in 01-research).
+* **Render targets.** The main 3D target (720×408 in mode 1, the
+  VitaGrafix sites `0x818282a6`/`0x818282ac`) is created in `0x81828272`.
   * That function also calls `sceGxmDepthStencilSurfaceInit`,
     `sceGxmGetRenderTargetMemSize`, `sceGxmTextureInitTiled` and
     `sceKernelAllocMemBlock`.

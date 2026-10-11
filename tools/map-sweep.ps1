@@ -12,7 +12,9 @@ param(
     [string]$Only = '',
     [string]$OutDir = 'build\maps',
     [string]$Bin = 'build\vita3k\bin\RelWithDebInfo',
-    [int]$Load = 40
+    [int]$Load = 40,
+    # also save each shot at render resolution (<map>-<n>-frame.png), to check the internal resolution
+    [switch]$Frames
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,6 +40,8 @@ foreach ($line in Get-Content $List) {
     $steps += 'hold:rs_right:900', 'wait 500', "shot:$o-3.png"
     $steps += 'hold:rs_up:500', 'hold:rs_right:900', 'wait 500', "shot:$o-4.png"
     $steps += 'hold:ls_up:2500', 'wait 300', "shot:$o-5.png"
+
+    if ($Frames) { $steps = $steps | ForEach-Object { if ($_ -like 'shot:*') { $_; 'frame:' + ($_.Substring(5) -replace '\.png$', '-frame.png') } else { $_ } } }
 
     python -I $drive $install bootseq PCSA00152 'Quest Select' | Out-Null
     try {

@@ -18,15 +18,18 @@ are recompiled to C++, and a build without the dynarmic JIT plays at 30 fps.
 `tools/install-game.ps1` turns the player's own dump and firmware into a
 playable folder, generating and compiling everything locally.
 
-Phase 7 (rendering correctness) is done:
-* every quest map renders correctly at 30 fps (`tools/map-sweep.ps1`, 48
-  of 50 map IDs);
-* the story scenes up to the final battle render correctly;
-* Mind's Eye works;
-* the bloom lag is fixed.
+Phase 7 (rendering correctness) is done. Every quest map and the story
+scenes up to the final battle render correctly, and Mind's Eye works.
 
-Only the endings after the final battle remain to be playtested. Phase 8
-(PC features) is next. See the [plan](docs/03-plan.md).
+Phase 8 (PC features) is mostly done:
+* the 3D renders at the full 960×544 (the game's own mode), times
+  Vita3K's multiplier: 1920×1088 at 30 fps on every map at scale 2;
+* the Black Rite touch has key/gamepad bindings;
+* Vita saves can be imported and exported;
+* F12 saves a screenshot.
+
+60 fps is studied but not shipped: a quest started at 60 fps doesn't
+finish loading. See the [plan](docs/03-plan.md).
 
 ## Documentation
 
@@ -49,7 +52,11 @@ Only the endings after the final battle remain to be playtested. Phase 8
 | `tools/inventory.py` | per-module code inventory into `generated/inventory/<module>/` (see docs/04-inventory) |
 | `tools/imix.py` | Capstone instruction-mix sweep over every exidx function |
 | `tools/sfo.py` | print `param.sfo` fields |
-| `tools/v3kdrive.py` | drive the portable Vita3K for baseline runs: launch, `BootSequence`, FPS sampling, background screenshots |
+| `tools/v3kdrive.py` | drive Vita3K or `ss-delta.exe` without focus: launch, `BootSequence`, buttons, touches, FPS sampling, screenshots |
+| `tools/lspk.py` | list and extract the game's LSPK archives (`.pkh`/`.pk`/`.pfs`) |
+| `tools/questmaps.py` | the quest map list from `quest_param.csv` |
+| `tools/map-sweep.ps1` | screenshot every quest map through Stage Select (`-Frames`: at render resolution) |
+| `tools/install-game.ps1`, `tools/make-dist.ps1` | a playable folder from the player's dump and firmware |
 | `recomp/recompile.py` | recompile a module to C++ in `generated/<module>/` (see docs/05-recompiler) |
 | `recomp/run-tests.ps1` | regenerate, build and run the dynarmic comparison tests for each module |
 | `tools/stackdump.py` | every thread's call stack of a running process, with PDB symbols (hangs) |

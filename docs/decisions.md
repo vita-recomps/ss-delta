@@ -433,3 +433,44 @@ notice (fork patch 0028).
   first time its pipeline is needed. There are no frame-time stalls.
 * A cache built by one translator version stays valid only for that
   version (`CLAUDE.md`, stale shader cache).
+
+## D13 — Higher resolution comes from the game's own 960×544 mode times Vita3K's multiplier; settings reach the game through a copy of boot_config.ini (accepted, 2026-10-11)
+
+**Context:**
+
+* The game draws its 3D at 720×408 and stretches it into the 960×544
+  framebuffer. The plan was to patch the VitaGrafix sites.
+* The render-target setup takes a mode from `boot_config.ini`'s
+  `ResoDown`: 0 gives 960×544, 1 (the retail value) 720×408.
+* Patching only the mode-1 immediates breaks rendering in Vita3K, since
+  other code reads the mode. Code patches would also have to go through
+  the recompiler, because native code checks the eboot's code against
+  guest memory.
+* Vita3K's resolution multiplier scales every surface consistently,
+  including the depth buffer that Mind's Eye reads.
+
+**Decision:**
+
+* `full_3d` (default on) selects `ResoDown 0`. `scale` multiplies it.
+* At scale 2 the 3D is 1920×1088, verified on all 50 map IDs at 30 fps on
+  the Radeon 760M.
+* `ss-delta.exe` gives the game a changed copy of `boot_config.ini`
+  through an IO read override (fork patch 0029). The installed game is
+  never modified. `[boot_config]` in `ss-delta.ini` passes other engine
+  keys the same way, for experiments.
+
+**Rejected:**
+
+* Patching the immediates (VitaGrafix style): breaks rendering here, and
+  needs recompiler support.
+* Editing the installed `boot_config.ini`: it changes the player's game
+  files, and a reinstall would lose the setting.
+* Rendering the 3D above the framebuffer (supersampling into 960×544):
+  Vita3K's multiplier already raises the framebuffer.
+
+**Consequences:**
+
+* `full_3d` changes the game's look slightly compared with a Vita, so it
+  can be turned off.
+* Engine keys (`FPS`, `ForceDLC`, ...) can be tried without patches, but
+  `FPS` turned out not to set the frame rate (02-baseline, 60 fps study).

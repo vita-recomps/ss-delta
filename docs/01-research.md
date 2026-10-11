@@ -228,7 +228,21 @@ numbers above:
   useful for testing a port.
 * **DLC:** the DLC assets reportedly ship inside the 1.30 data; entitlement is
   a flag in the save (`system.bin`) [web, GBAtemp]. So 1.30 is the right
-  target.
+  target. The engine also has a `ForceDLC` key in `boot_config.ini`
+  (commented out in retail) [local].
+* **Touch** (the game's English text, `ingame_event_us.msgt`,
+  `ingame_tutorial_us.msgt`, `letter_text_01_us.msgt`, `online_text_us.msgt`)
+  [local, 2026-10-11]:
+  * "Black Rite: touch and hold icon". The icon is in the lower left during
+    quests, centred near (56, 494) of 960×544. This is the only touch-only
+    action found.
+  * "Touch enemies or allies to influence those still alive" (after a
+    battle), "you may also directly tap a pact" (Phantom Quests), and
+    tapping skips a quest's opening (so does START).
+  * Librom reacts to being touched ("Hey, that tickles. No touching!").
+  * No rear-touch prompts were found. The eboot imports `sceTouchRead`,
+    `sceTouchSetSamplingState` and `sceTouchGetPanelInfo`. Which ports it
+    samples is not checked (**hypothesis:** the rear panel is unused).
 
 ### Rendering facts
 
@@ -239,6 +253,32 @@ numbers above:
   * UV-scale floats in segment 1 at `0x81CC6C50` / `0x81CC6C58` hold
     720/736 = 0.97826 and 408/416 = 0.98077.
   * These are exactly the VitaGrafix patch sites for US 1.30.
+* **The resolution is the game's own setting** [local, 2026-10-11]:
+  `boot_config.ini`'s `ResoDown` is a mode that the render-target setup
+  `0x81828272` takes in `r1` (through `0x81828b0e`, called from
+  `0x812ab2b8` with the parsed config's `+4`):
+
+  | `ResoDown` | 3D target |
+  |---|---|
+  | 0, or 4 and up | 960×544 |
+  | 1 (retail) | 720×408 |
+  | 2 | 640×368 |
+  | 3 | 480×272 |
+
+  * Every buffer derived from it follows. `ResoDown 0` renders correctly
+    (Phase 8), and is sharper.
+  * Patching only the mode-1 immediates (as VitaGrafix does) breaks
+    rendering in Vita3K: `sceGxmColorSurfaceInit` and
+    `sceGxmTextureInitLinear` reject their arguments, and the game aborts.
+    Other code reads the mode itself.
+* **`boot_config.ini` keys** (parser `0x817e7c74`; the config object's
+  pointer is at `0x81c9a48c`): `FPS` +0, `ResoDown` +4, `PackFileFirst`
+  +0xa, `Trophy` +0xb, `PowerMode` +0xc, `ScreenShot` +0xd,
+  `ScreenShotOverlay` +0xe, `CaptureMode` +0xf, `ModeTrial` +0x10,
+  `ModeTrialEvent` +0x11, `ModeCompetition` +0x12, `ModeOpenTest` +0x13,
+  `ForceDLC` +0x14, `DebugRegionType` +0x1c, `DebugLanguageType` +0x20,
+  `EffectReload` and `EffectGpuLimitThreshold` near +0x28 (offsets from a
+  pattern scan; the last two are less certain).
 * **30 fps** (`FPS 30` in `boot_config.ini`). No 60 fps patch exists anywhere.
   Game logic is presumably frame-locked (**hypothesis**).
 

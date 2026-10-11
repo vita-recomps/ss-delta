@@ -76,6 +76,23 @@ conventions.
   (`archive_patch3` overrides `archive`). `tools/questmaps.py` turns
   `quest_param.csv` into the map list `tools/map-sweep.ps1` sweeps through
   Stage Select (screenshots under `build/`, never committed).
+- `ss-delta.exe` hands the game a copy of `boot_config.ini` with
+  `ResoDown 0` (`full_3d`, D13) plus any `[boot_config]` keys from the ini;
+  the installed file stays untouched. Don't set `SSD_AOT` by hand for
+  `ss-delta.exe` runs: it then loads only those DLLs, not the firmware
+  modules, and the game stops in SceSysmodule.
+- `v3kdrive.py` steps for `ss-delta.exe` only: `frame:<path>` (a PNG at
+  render resolution, read back on the render thread), `touch:x:y:ms`,
+  `tdown:x:y`/`tup` (960×544 points). Test data patches go in
+  `build/vita3k/bin/RelWithDebInfo/patch/PCSA00152.txt` (Vita3K's patch
+  format, `[eboot.bin]` then `seg:offset hexbytes`, little-endian values).
+  Remove the file after use. A code patch disables native code for the
+  eboot.
+- Saves: `ss-delta.exe --import-save <folder|zip> [--quiet]` / `--export-save
+  <dir>` (backups in `ss-delta/save-backups/`). A third-party
+  story-complete save is in `build/save-apollo/`; the owner's own save is
+  in `build/save-backup-20261011/`. Put the owner's save back after any
+  test.
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).

@@ -878,3 +878,84 @@ Scripted through `ss-delta.exe`, all modules native, 27–30 fps:
     reference.
 * **Not seen:** the endings after defeating Magusar. They need a won final
   battle, which a script can't play.
+
+## Phase 8 (2026-10-11)
+
+All runs in `ss-delta.exe`, all modules native (NativeCPU), Vulkan on the
+Radeon 760M.
+
+**Resolution.** The 3D target follows `boot_config.ini`'s `ResoDown`
+(see 01-research). Vita3K's `scale` multiplies everything.
+
+| Setting | 3D target | Framebuffer | Result |
+|---|---|---|---|
+| `full_3d = false`, scale 1 (the Vita) | 720×408 | 960×544 | the Phase 7 sweep |
+| `full_3d = false`, scale 2 | 1440×816 | 1920×1088 | ST01B, ST03A: correct, 29.6 fps; the 3D stays soft (stretched 4:3) |
+| `full_3d = true`, scale 1 | 960×544 | 960×544 | ST01B: correct, 29.6 fps; visibly sharper |
+| `full_3d = true`, scale 2 | 1920×1088 | 1920×1088 | **all 50 map IDs** (sweep below) |
+
+* **Sweep at `full_3d` + scale 2** (`tools/map-sweep.ps1`, the same steps
+  as Phase 7; `build/maps-full2/`): 29.5–29.7 fps mean on every map,
+  one-second minimums 23–29. The screenshots match the Phase 7 sweep: fog,
+  bloom, shadows, HUD and the Mind's Eye outlines are all correct. As
+  before, ST17A doesn't start from Stage Select, and on boss maps the idle
+  player is killed early.
+* Mind's Eye at scale 2 (a burst of render-resolution frames on ST01B):
+  the harpy's outline is drawn correctly. The depth read follows the
+  multiplier.
+* Patching only the 720×408 immediates (as VitaGrafix does) is not
+  equivalent: rendering breaks and the game aborts (01-research).
+
+**Screenshots at render resolution:** F12, or `frame:<path>` in
+`v3kdrive.py`. The first version read the frame back from the frontend
+thread, and a run at 60 fps aborted in `vk::Queue::submit` on the render
+thread. The read-back now runs on the render thread (fork patch 0029).
+
+**Touch.** Injected touches reach the game: a tap at (480, 300) advances
+"PRESS ANY BUTTON" to the main menu. Touching Librom during his dialogue
+did nothing, and the Black Rite icon didn't appear in a 60-second idle
+stretch of a story quest. So the Black Rite binding is untested.
+
+**Save import.** `--import-save` with the Apollo zip:
+* It loads through the title screen into the hub, listed by the generated
+  slot record ("Save data 1", "Imported").
+* The save it replaced was copied to `ss-delta/save-backups/<time>/`.
+* `--export-save` gives back the imported files byte for byte.
+* A source without the two files at their sizes is refused (exit 1).
+
+### 60 fps study
+
+ST03A from Stage Select. 5 s idle, then a 3 s walk forward. Frames at
+render resolution before and after the walk.
+
+| Change | fps | Walk |
+|---|---|---|
+| none | 29.7–29.8 | reference |
+| `[boot_config] FPS = 60` | 29.2–29.8 | same distance |
+| flip threshold 1 (data patch, segment 1 `+0x2794`) | 29.4–29.8 | — |
+| both | 29.6–29.8 | — |
+| `[debug] frame_rate = 60` (timer period and flip threshold) | 57–58 | the quest never finishes loading |
+| the same from 62 s (after the quest has loaded) | 57 | **same distance as at 30 fps** |
+
+* The `FPS` key doesn't set the frame rate. A temporary log in
+  `sceKernelDelayThread` showed what does: the main thread (8) sleeps
+  21–33 ms a frame through `0x81804128`.
+* That sleep is called from the main loop `0x812ac026`, which asks the
+  frame timer `*(*0x81c957cc)` how long is left (`0x81804c88`). The timer
+  is created with 30 (`0x812ab888: movs r0, #0x1e`). Its period, 33,333 µs,
+  is the timer object's first u64.
+* The display flips every 2nd vblank: threshold 2, static data at
+  `0x81c95794`, copied to `0x81d3a630` at init.
+* Frame time: `0x812ac73c` returns the measured interval (`+0x28` of the
+  timer). It returns a fixed 1/30 s when a byte at `*0x81c9a488 + 5` is
+  set. Player movement at 60 fps covered the same distance as at 30, so
+  the gameplay code uses the measured interval for that, at least.
+* **Blocker:** with 60 fps from the start, the quest-start transition never
+  ends (still running after 80 s; it ends within 40 s at 30 fps).
+  **Hypothesis:** the game streams the quest in during the main loop's
+  spare frame time, and at 16.7 ms frames on this GPU (57 fps) there is
+  none.
+* Not checked: animation timing, Havok physics, AI, UI timers, audio sync.
+* Next steps if 60 fps is pursued: find the loader's budget (or run
+  loading at 30 and gameplay at 60), then compare gameplay timings against
+  30 fps.
