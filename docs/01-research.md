@@ -249,14 +249,22 @@ numbers above:
     main save) into a gift on the Claim Gift page. It runs when that
     page's download step ends, which needs a PSN sign-in and the network
     (`sceNetCheckDialog`, then a network task); offline it never ends.
-  * On a Vita after the shutdown, replacing the save's `system.bin` and
-    `system.bak` with ones from a save that had the add-ons unlocks them:
-    new outfits, Carnatux's shop, the extra pacts [web, GBAtemp thread
-    625005]. Our `system.bin` (yours and the Apollo save's are identical)
-    is a 32-byte header (`1`, size `0x614`, `0`, format `0x22`, a 32-bit
-    check `0x199099c5`) and 1,536 zero bytes; the check is not a plain
-    CRC-32 or Adler-32 of the file (**hypothesis:** the add-on record is
-    in that body).
+  * **What unlocks them is the save's `system.bin`** [local, verified]. On
+    a Vita after the shutdown, players swap in a `system.bin` from a save
+    that had the add-ons [web, GBAtemp thread 625005]. That file holds,
+    after the 32-byte header `{1, 0x614, 0, 0x22, check}`, four sorted id
+    lists ended by a zero:
+    * `0x14` (u16): 35 `quest_param.csv` rows, the additional pacts
+      (449–451, 455–463, 467–472, 561–571, 575–580);
+    * `0x224` (u16): 624, 696, 708, 4348, 4420, 4432 (parts tables);
+    * `0x324` (u32): 502, 512, 7812, 8702, 8802;
+    * `0x344` (u16): `costume_table.csv` rows 112–119, 130 (Healer, Beast,
+      Easterner ...).
+    The check (`+0x10`) is CRC-32/BZIP2 of the whole 1,556 bytes with the
+    check zeroed. Our `system.bin` has all four lists empty. With the
+    lists written, the outfit list shows Healer, Beast and Easterner as new
+    (seen in `ss-delta.exe`, 2026-10-11). List capacities are taken as the
+    gaps to the next list (**hypothesis**).
 * **Touch** (the game's English text, `ingame_event_us.msgt`,
   `ingame_tutorial_us.msgt`, `letter_text_01_us.msgt`, `online_text_us.msgt`)
   [local, 2026-10-11]:

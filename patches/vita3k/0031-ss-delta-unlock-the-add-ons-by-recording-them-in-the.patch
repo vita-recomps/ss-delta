@@ -1,0 +1,685 @@
+From 0d303123353418e98eaaea3ab18fea115449984f Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 16:06:55 +0200
+Subject: [PATCH] ss-delta: unlock the add-ons by recording them in the save's
+ system.bin
+
+The game reads what was bought on PSN from system.bin: after a 32-byte
+header, four sorted id lists (add-on pacts, parts, items, raiments) and a
+CRC-32/BZIP2 check over the file with the check zeroed. At start,
+ss-delta.exe ([game] dlc, now on) adds the released add-ons' ids to the
+player's own system.bin/.bak, keeping what is there, once the installed
+game has the add-on pacts (quest_param.csv rows to 580) and raiments
+(costume_table.csv row 130); the previous files go to
+ss-delta/save-backups/. The result is byte-identical to the system.bin
+Vita owners swap in, and the new raiments appear.
+
+Reverts the offline PSN entitlement HLE of the previous commit: the game
+holds those entitlements but only hands them out after an online step.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/modules/SceNpCommon/SceNpCommon.cpp   | 112 ++-----------------
+ vita3k/modules/SceNpManager/SceNpManager.cpp |   4 -
+ vita3k/np/include/np/state.h                 |  18 ---
+ vita3k/ss-delta/dlc.cpp                      |  71 ++++++------
+ vita3k/ss-delta/dlc.h                        |  17 +--
+ vita3k/ss-delta/main.cpp                     |  64 ++---------
+ vita3k/ss-delta/saves.cpp                    | 108 ++++++++++++++++++
+ vita3k/ss-delta/saves.h                      |   7 ++
+ vita3k/ss-delta/settings.cpp                 |   7 +-
+ vita3k/ss-delta/settings.h                   |   2 +-
+ 10 files changed, 184 insertions(+), 226 deletions(-)
+
+diff --git a/vita3k/modules/SceNpCommon/SceNpCommon.cpp b/vita3k/modules/SceNpCommon/SceNpCommon.cpp
+index a6aca092..6b4aa273 100644
+--- a/vita3k/modules/SceNpCommon/SceNpCommon.cpp
++++ b/vita3k/modules/SceNpCommon/SceNpCommon.cpp
+@@ -20,9 +20,6 @@
+ #include <io/state.h>
+ #include <kernel/state.h>
+ #include <np/common.h>
+-#include <np/state.h>
+-
+-#include <cstring>
+ 
+ #include <util/tracy.h>
+ TRACY_MODULE_NAME(SceNpCommon);
+@@ -36,8 +33,6 @@ enum SceNpUtilErrorCode {
+ 
+ EXPORT(int, sceNpAuthAbortRequest) {
+     TRACY_FUNC(sceNpAuthAbortRequest);
+-    if (emuenv.np.entitlements.enabled)
+-        return 0;
+     return UNIMPLEMENTED();
+ }
+ 
+@@ -53,38 +48,8 @@ struct SceNpAuthRequestParameter {
+     Ptr<void> cbArg;
+ };
+ 
+-struct SceNpEntitlementId {
+-    char data[32];
+-};
+-
+-struct SceNpEntitlement {
+-    SceNpEntitlementId id;
+-    SceUInt64 createdDate;
+-    SceUInt64 expireDate;
+-    SceUInt32 type;
+-    SceInt32 remainingCount;
+-    SceInt32 consumedCount;
+-    char padding[4];
+-};
+-static_assert(sizeof(SceNpEntitlement) == 0x40);
+-
+-// the placeholder ticket of offline entitlements: only its size matters to the game
+-constexpr SceSize OFFLINE_TICKET_SIZE = 256;
+-// any negative result means "not found" to the game (hypothesis: the exact code is unchecked)
+-constexpr int OFFLINE_ENTITLEMENT_NOT_FOUND = static_cast<int>(0x80550511);
+-
+ EXPORT(int, sceNpAuthCreateStartRequest, const SceNpAuthRequestParameter *param) {
+     TRACY_FUNC(sceNpAuthCreateStartRequest, param);
+-    auto &ent = emuenv.np.entitlements;
+-    if (ent.enabled) {
+-        // the game stores the request id before its callback may run: deliver it from
+-        // sceNpCheckCallback, as the system does
+-        std::lock_guard<std::mutex> lock(ent.mutex);
+-        const int id = ent.next_request_id++;
+-        LOG_INFO("NP auth (offline entitlements): request {} started", id);
+-        ent.pending.push_back({ id, param->ticketCb.address(), param->cbArg.address() });
+-        return id;
+-    }
+     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+     // todo: this callback function should be called from sceNpCheckCallback
+     STUBBED("Immediately call ticket callback");
+@@ -94,28 +59,12 @@ EXPORT(int, sceNpAuthCreateStartRequest, const SceNpAuthRequestParameter *param)
+ 
+ EXPORT(int, sceNpAuthDestroyRequest) {
+     TRACY_FUNC(sceNpAuthDestroyRequest);
+-    if (emuenv.np.entitlements.enabled)
+-        return 0;
+-    return UNIMPLEMENTED();
+-}
+-
+-EXPORT(int, sceNpAuthGetEntitlementById, const void *ticket, SceSize ticket_size, const char *ent_id, SceNpEntitlement *ent) {
+-    TRACY_FUNC(sceNpAuthGetEntitlementById, ticket, ticket_size, ent_id, ent);
+-    auto &state = emuenv.np.entitlements;
+-    if (!state.enabled)
+-        return UNIMPLEMENTED();
+-    if (!ent_id || !ent)
+-        return OFFLINE_ENTITLEMENT_NOT_FOUND;
+-    const std::string wanted(ent_id, strnlen(ent_id, sizeof(SceNpEntitlementId::data)));
+-    LOG_INFO("NP auth (offline entitlements): entitlement {} asked", wanted);
+-    for (const auto &id : state.ids) {
+-        if (id != wanted)
+-            continue;
+-        *ent = {};
+-        std::strncpy(ent->id.data, id.c_str(), sizeof(ent->id.data) - 1);
+-        return 0;
+-    }
+-    return OFFLINE_ENTITLEMENT_NOT_FOUND;
++    return UNIMPLEMENTED();
++}
++
++EXPORT(int, sceNpAuthGetEntitlementById) {
++    TRACY_FUNC(sceNpAuthGetEntitlementById);
++    return UNIMPLEMENTED();
+ }
+ 
+ EXPORT(int, sceNpAuthGetEntitlementByIdPrefix) {
+@@ -123,28 +72,14 @@ EXPORT(int, sceNpAuthGetEntitlementByIdPrefix) {
+     return UNIMPLEMENTED();
+ }
+ 
+-EXPORT(int, sceNpAuthGetEntitlementIdList, const void *ticket, SceSize ticket_size, SceNpEntitlementId *list, SceSize count) {
+-    TRACY_FUNC(sceNpAuthGetEntitlementIdList, ticket, ticket_size, list, count);
+-    auto &state = emuenv.np.entitlements;
+-    if (!state.enabled)
+-        return UNIMPLEMENTED();
+-    LOG_INFO("NP auth (offline entitlements): entitlement list asked ({} slots), {} entitlements", count, state.ids.size());
+-    if (list) {
+-        for (SceSize i = 0; i < count && i < state.ids.size(); i++) {
+-            list[i] = {};
+-            std::strncpy(list[i].data, state.ids[i].c_str(), sizeof(list[i].data) - 1);
+-        }
+-    }
+-    return static_cast<int>(state.ids.size());
++EXPORT(int, sceNpAuthGetEntitlementIdList) {
++    TRACY_FUNC(sceNpAuthGetEntitlementIdList);
++    return UNIMPLEMENTED();
+ }
+ 
+-EXPORT(int, sceNpAuthGetTicket, int request_id, void *buf, SceSize size) {
+-    TRACY_FUNC(sceNpAuthGetTicket, request_id, buf, size);
+-    if (!emuenv.np.entitlements.enabled)
+-        return UNIMPLEMENTED();
+-    if (buf)
+-        std::memset(buf, 0, size);
+-    return 0;
++EXPORT(int, sceNpAuthGetTicket) {
++    TRACY_FUNC(sceNpAuthGetTicket);
++    return UNIMPLEMENTED();
+ }
+ 
+ EXPORT(int, sceNpAuthGetTicketParam) {
+@@ -154,37 +89,14 @@ EXPORT(int, sceNpAuthGetTicketParam) {
+ 
+ EXPORT(int, sceNpAuthInit) {
+     TRACY_FUNC(sceNpAuthInit);
+-    if (emuenv.np.entitlements.enabled) {
+-        LOG_INFO("NP auth (offline entitlements): init");
+-        return 0;
+-    }
+     return UNIMPLEMENTED();
+ }
+ 
+ EXPORT(int, sceNpAuthTerm) {
+     TRACY_FUNC(sceNpAuthTerm);
+-    if (emuenv.np.entitlements.enabled)
+-        return 0;
+     return UNIMPLEMENTED();
+ }
+ 
+-// the ticket callbacks of offline entitlements, due from sceNpCheckCallback (SceNpManager)
+-void run_offline_ticket_callbacks(EmuEnvState &emuenv, SceUID thread_id) {
+-    auto &state = emuenv.np.entitlements;
+-    std::vector<NpOfflineEntitlements::PendingTicket> due;
+-    {
+-        std::lock_guard<std::mutex> lock(state.mutex);
+-        due.swap(state.pending);
+-    }
+-    if (due.empty())
+-        return;
+-    const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+-    for (const auto &t : due) {
+-        LOG_INFO("NP auth (offline entitlements): ticket for request {}, {} entitlements", t.request_id, state.ids.size());
+-        thread->run_callback(t.callback, { static_cast<uint32_t>(t.request_id), OFFLINE_TICKET_SIZE, t.arg });
+-    }
+-}
+-
+ EXPORT(int, sceNpCmpNpId, np::SceNpId *npid1, np::SceNpId *npid2) {
+     TRACY_FUNC(sceNpCmpNpId, npid1, npid2);
+ 
+diff --git a/vita3k/modules/SceNpManager/SceNpManager.cpp b/vita3k/modules/SceNpManager/SceNpManager.cpp
+index b544cc45..e9a884df 100644
+--- a/vita3k/modules/SceNpManager/SceNpManager.cpp
++++ b/vita3k/modules/SceNpManager/SceNpManager.cpp
+@@ -66,12 +66,8 @@ EXPORT(int, sceNpAuthGetAuthorizationCode) {
+     return UNIMPLEMENTED();
+ }
+ 
+-// SceNpCommon: the ticket callbacks of offline entitlements
+-void run_offline_ticket_callbacks(EmuEnvState &emuenv, SceUID thread_id);
+-
+ EXPORT(int, sceNpCheckCallback) {
+     TRACY_FUNC(sceNpCheckCallback);
+-    run_offline_ticket_callbacks(emuenv, thread_id);
+ 
+     const ThreadStatePtr thread = emuenv.kernel.get_thread(thread_id);
+     const SceNpServiceState state = emuenv.cfg.current_config.psn_signed_in ? SCE_NP_SERVICE_STATE_SIGNED_IN : SCE_NP_SERVICE_STATE_SIGNED_OUT;
+diff --git a/vita3k/np/include/np/state.h b/vita3k/np/include/np/state.h
+index ad9c8ac5..f6017f31 100644
+--- a/vita3k/np/include/np/state.h
++++ b/vita3k/np/include/np/state.h
+@@ -24,7 +24,6 @@
+ 
+ #include <map>
+ #include <mutex>
+-#include <string>
+ #include <vector>
+ 
+ struct SceNpServiceStateCallback {
+@@ -71,27 +70,10 @@ enum SceNpServiceState : uint32_t {
+     SCE_NP_SERVICE_STATE_ONLINE = 3
+ };
+ 
+-// Entitlements answered without PSN (ss-delta: the game's add-on unlock keys, whose content is in
+-// its own data). When enabled, sceNpAuth issues a placeholder ticket and the entitlement queries
+-// answer from `ids`.
+-struct NpOfflineEntitlements {
+-    bool enabled = false;
+-    std::vector<std::string> ids;
+-    struct PendingTicket {
+-        int request_id;
+-        Address callback;
+-        Address arg;
+-    };
+-    std::mutex mutex;
+-    std::vector<PendingTicket> pending; // ticket callbacks run by the next sceNpCheckCallback
+-    int next_request_id = 1;
+-};
+-
+ struct NpState {
+     bool inited = false;
+     np_callbacks cbs;
+     SceUID state_cb_id;
+-    NpOfflineEntitlements entitlements;
+ 
+     NpTrophyState trophy_state;
+     np::CommunicationID comm_id;
+diff --git a/vita3k/ss-delta/dlc.cpp b/vita3k/ss-delta/dlc.cpp
+index f634926f..fd084985 100644
+--- a/vita3k/ss-delta/dlc.cpp
++++ b/vita3k/ss-delta/dlc.cpp
+@@ -19,20 +19,15 @@
+ 
+ #include <miniz.h>
+ 
++#include <algorithm>
+ #include <array>
+ #include <cstdint>
+ #include <optional>
+-#include <string_view>
+ 
+ namespace ss_delta {
+ 
+ namespace {
+ 
+-constexpr const char *TABLE = "resource/database/network/entitlement_table_us.csv";
+-constexpr const char *PREFIX = "UP9000-PCSA00152_00-SSC";
+-// "配布予定なし" (no distribution planned) in the table's Shift-JIS comments
+-constexpr std::string_view NOT_RELEASED = "\x94\x7a\x95\x7a\x97\x5c\x92\xe8\x82\xc8\x82\xb5";
+-
+ // the .pkh key: CRC-32/BZIP2 of the lower-case path (tools/lspk.py in ss-delta)
+ uint32_t path_hash(const std::string &path) {
+     static const auto table = [] {
+@@ -92,40 +87,46 @@ std::optional<std::vector<uint8_t>> read_member(const fs::path &base, const std:
+     return std::nullopt;
+ }
+ 
+-} // namespace
+-
+-DlcList find_dlc(const fs::path &app_dir) {
+-    DlcList out;
++// lines of a member, from archive_patch3 when it has it (it overrides archive, as in the game)
++std::optional<std::vector<std::string>> read_lines(const fs::path &app_dir, const std::string &path) {
+     const fs::path retail = app_dir / "resource" / "data" / "pack" / "mount" / "retail";
+-    std::optional<std::vector<uint8_t>> table;
+-    // the patch archive overrides the base one, as in the game
+     for (const char *archive : { "archive_patch3", "archive" }) {
+-        table = read_member(retail / archive, TABLE);
+-        if (table) {
+-            out.source = archive;
+-            break;
++        if (const auto data = read_member(retail / archive, path)) {
++            std::vector<std::string> lines;
++            std::string line;
++            for (const uint8_t c : *data) {
++                if (c == '\n') {
++                    lines.push_back(line);
++                    line.clear();
++                } else if (c != '\r')
++                    line += static_cast<char>(c);
++            }
++            if (!line.empty())
++                lines.push_back(line);
++            return lines;
+         }
+     }
+-    if (!table)
+-        return out;
+-    // "product id,box id,release version,comment" rows after a header line
+-    const std::string text(table->begin(), table->end());
+-    size_t pos = text.find('\n');
+-    while (pos != std::string::npos && pos + 1 < text.size()) {
+-        const size_t start = pos + 1;
+-        pos = text.find('\n', start);
+-        std::string line = text.substr(start, pos == std::string::npos ? std::string::npos : pos - start);
+-        if (!line.empty() && line.back() == '\r')
+-            line.pop_back();
+-        const std::string id = line.substr(0, line.find(','));
+-        if (id.empty())
+-            continue;
+-        if (id.starts_with(PREFIX) && line.find(NOT_RELEASED) == std::string::npos)
+-            out.ids.push_back(id);
+-        else
+-            out.left_out.push_back(id);
++    return std::nullopt;
++}
++
++} // namespace
++
++bool addon_data_present(const fs::path &app_dir, std::string &why) {
++    // the add-on pacts are quest_param.csv rows up to 580, the raiments costume_table.csv rows up
++    // to 130 (saves.cpp ADDON_LISTS)
++    const auto quests = read_lines(app_dir, "resource/boot/quest_param.csv");
++    if (!quests || quests->size() < 1 + 581) {
++        why = quests ? "quest_param.csv has " + std::to_string(quests->size() - 1) + " quests, the add-ons need 581 (game update 1.30)"
++                     : "quest_param.csv not found in the game's archives";
++        return false;
++    }
++    const auto costumes = read_lines(app_dir, "resource/boot/costume_table.csv");
++    const bool raiments = costumes && std::any_of(costumes->begin(), costumes->end(), [](const std::string &l) { return l.starts_with("130,"); });
++    if (!raiments) {
++        why = "costume_table.csv lacks the add-on raiments";
++        return false;
+     }
+-    return out;
++    return true;
+ }
+ 
+ } // namespace ss_delta
+diff --git a/vita3k/ss-delta/dlc.h b/vita3k/ss-delta/dlc.h
+index d3f9d29e..1b353e8f 100644
+--- a/vita3k/ss-delta/dlc.h
++++ b/vita3k/ss-delta/dlc.h
+@@ -15,25 +15,18 @@
+ // with this program; if not, write to the Free Software Foundation, Inc.,
+ // 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ 
+-// The game's add-on content: unlock keys (PSN entitlements) for costumes, hoods and a sigil whose
+-// items ship in the game's own data. The list of keys is the game's
+-// resource/database/network/entitlement_table_us.csv, read from its archives.
++// The game's add-ons (costumes, pacts) ship in its own data since the last patch; PSN only
++// recorded which were bought. This checks that the installed game has them.
+ #pragma once
+ 
+ #include <util/fs.h>
+ 
+ #include <string>
+-#include <vector>
+ 
+ namespace ss_delta {
+ 
+-struct DlcList {
+-    std::vector<std::string> ids; // product ids the game checks, e.g. UP9000-PCSA00152_00-SSC001
+-    std::vector<std::string> left_out; // rows of the table that are not released add-ons
+-    std::string source; // the archive the table came from; empty when there is none
+-};
+-
+-// The released add-ons listed in the installed game's data (app_dir = ux0/app/PCSA00152).
+-DlcList find_dlc(const fs::path &app_dir);
++// True when the installed game (app_dir = ux0/app/PCSA00152) has the add-ons' pacts and raiments
++// in its data; otherwise `why` says what is missing.
++bool addon_data_present(const fs::path &app_dir, std::string &why);
+ 
+ } // namespace ss_delta
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index a865e309..62787257 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -42,7 +42,6 @@
+ #include <io/functions.h>
+ #include <io/state.h>
+ #include <modules/module_parent.h>
+-#include <np/state.h>
+ #include <sdl-frontend/session.h>
+ #include <touch/state.h>
+ #include <util/log.h>
+@@ -56,7 +55,6 @@
+ #include <SDL3/SDL.h>
+ #include <stb_image.h>
+ #include <stb_image_write.h>
+-#include <fmt/ranges.h>
+ // provides WinMain for the windowed executable, which calls main below
+ #include <SDL3/SDL_main.h>
+ 
+@@ -198,46 +196,6 @@ void override_boot_config(EmuEnvState &emuenv, const fs::path &dir, const std::m
+     emuenv.io.read_overrides[read_override_key(installed)] = copy;
+ }
+ 
+-// Add-ons (docs/decisions.md D14 in ss-delta). The game keeps its PSN entitlements in a manager,
+-// *(*0x81c9a4e0 + 0x44), a small state machine (0x818ca438): 1 starts an NP auth request, a ticket
+-// moves it to 3, 3 fetches the entitlement list (count +0x40, ids +0x44) and it returns to 0.
+-// The Claim Gift page (Cassus) then hands out every listed add-on not received yet. The game
+-// starts the request (0x818ca3c0) only on its way online, which ss-delta never goes, so it is
+-// started here the same way, once: the NP auth HLE answers it from the game's own table.
+-// Returns true when there is nothing more to do.
+-bool start_entitlement_request(EmuEnvState &emuenv) {
+-    auto &mem = emuenv.mem;
+-    const auto u32 = [&](Address a) -> uint32_t * { return a && is_valid_addr(mem, a) ? Ptr<uint32_t>(a).get(mem) : nullptr; };
+-    uint32_t *const holder = u32(0x81c9a4e0);
+-    if (!holder || !*holder)
+-        return false;
+-    uint32_t *const mgr_ptr = u32(*holder + 0x44);
+-    if (!mgr_ptr || !*mgr_ptr || !is_valid_addr(mem, *mgr_ptr + 0x47))
+-        return false;
+-    const Address mgr = *mgr_ptr;
+-    uint32_t *const m = Ptr<uint32_t>(mgr).get(mem);
+-    // [0] service id, [1] version (u16 3, u16 0), [2] state, [3] request, [4] result, ... [16] count
+-    if (m[0] == 0)
+-        return false; // not set up yet
+-    if (m[2] != 0 || m[16] != 0) {
+-        LOG_INFO("Add-ons: the game's entitlement request is already under way (state {}, {} listed)", m[2], m[16]);
+-        return true;
+-    }
+-    m[5] = 0x24; // SceNpAuthRequestParameter: size
+-    m[6] = m[1]; // version
+-    m[7] = m[0]; // service id
+-    m[8] = 0; // cookie
+-    m[9] = 0; // cookie size
+-    m[10] = 0; // entitlement id
+-    m[11] = 0; // consumed count
+-    m[12] = 0x818ca2af; // ticket callback (Thumb)
+-    m[13] = mgr; // its argument
+-    m[4] = 0;
+-    m[2] = 1; // start
+-    LOG_INFO("Add-ons: entitlement request started (manager {})", log_hex(mgr));
+-    return true;
+-}
+-
+ // The 60 fps study (docs/03-plan.md Phase 8): the game paces its main loop with a frame timer
+ // created for 30 fps (0x812ab888: movs r0, #30), whose period in microseconds is the first u64 of
+ // the timer object (*(*0x81c957cc)), and flips every 2nd vblank (threshold at 0x81d3a630). Both
+@@ -450,16 +408,19 @@ int main(int argc, char *argv[]) {
+         return 1;
+     }
+ 
+-    // add-ons: the game asks PSN for its entitlements, which are answered offline from its own table
++    // add-ons: the game reads what was bought on PSN from the save's system.bin; the content itself
++    // is in the game's data (docs/decisions.md D14 in ss-delta)
+     if (settings.dlc) {
+-        const auto dlc = ss_delta::find_dlc(emuenv.vita_fs_path / "ux0" / "app" / TITLE_ID);
+-        if (!dlc.ids.empty()) {
+-            emuenv.np.entitlements.enabled = true;
+-            emuenv.np.entitlements.ids = dlc.ids;
+-            LOG_INFO("Add-ons: {} unlocked (entitlement table in {}), {} rows left out ({})", dlc.ids.size(), dlc.source,
+-                dlc.left_out.size(), fmt::join(dlc.left_out, ", "));
++        std::string why;
++        if (ss_delta::addon_data_present(emuenv.vita_fs_path / "ux0" / "app" / TITLE_ID, why)) {
++            std::string message;
++            const bool ok = ss_delta::unlock_addons(settings.vita_fs, data_dir / "save-backups", message);
++            if (ok)
++                LOG_INFO("Add-ons: {}", message);
++            else
++                LOG_ERROR("Add-ons: {}", message);
+         } else
+-            LOG_INFO("Add-ons: none in the game's data{}", dlc.source.empty() ? " (no entitlement table)" : "");
++            LOG_WARN("Add-ons: not unlocked, the installed game lacks them ({})", why);
+     }
+ 
+     // the game's own engine settings that ss-delta.ini changes
+@@ -560,7 +521,6 @@ int main(int argc, char *argv[]) {
+     };
+     const auto session_start = std::chrono::steady_clock::now();
+     bool frame_rate_pending = settings.frame_rate != 30;
+-    bool entitlements_pending = emuenv.np.entitlements.enabled;
+     hooks.on_tick = [&] {
+         if (dump_elfs_seconds > 0 && std::chrono::steady_clock::now() - session_start > std::chrono::duration<double>(dump_elfs_seconds)) {
+             // --dump-elfs: the modules the game loads at boot are written; quit
+@@ -569,8 +529,6 @@ int main(int argc, char *argv[]) {
+             SDL_PushEvent(&quit);
+             dump_elfs_seconds = 0;
+         }
+-        if (entitlements_pending && start_entitlement_request(emuenv))
+-            entitlements_pending = false;
+         if (frame_rate_pending && std::chrono::steady_clock::now() - session_start > std::chrono::seconds(settings.frame_rate_delay)
+             && apply_frame_rate(emuenv, settings.frame_rate))
+             frame_rate_pending = false;
+diff --git a/vita3k/ss-delta/saves.cpp b/vita3k/ss-delta/saves.cpp
+index a96ca803..8e27a742 100644
+--- a/vita3k/ss-delta/saves.cpp
++++ b/vita3k/ss-delta/saves.cpp
+@@ -22,6 +22,7 @@
+ 
+ #include <miniz.h>
+ 
++#include <algorithm>
+ #include <array>
+ #include <cstring>
+ #include <ctime>
+@@ -191,6 +192,113 @@ bool import_save(const fs::path &vita_fs, const fs::path &source, const fs::path
+     return true;
+ }
+ 
++namespace {
++
++// system.bin (1556 bytes): a header {u32 1, u32 size 0x614, u32 0, u32 format 0x22, u32 check},
++// then id lists, each sorted and ended by a zero (offsets and capacities from saves with and
++// without the add-ons; the capacities are the gaps to the next list):
++struct IdList {
++    size_t offset, capacity, width; // width 2: u16 ids, 4: u32 ids
++    std::vector<uint32_t> addons; // the released add-ons' ids in this list
++};
++const std::array<IdList, 4> ADDON_LISTS{ {
++    // pacts: rows of quest_param.csv (the additional pacts I-XII, XIV and the otherworldly ones)
++    { 0x14, 0x210 / 2, 2, { 449, 450, 451, 455, 456, 457, 458, 459, 460, 461, 462, 463, 467, 468, 469, 470, 471, 472, 561, 562, 563, 564, 565, 566, 567, 568, 569, 570, 571, 575, 576, 577, 578, 579, 580 } },
++    // raiment and hood parts (parts_upper/lower_param.csv)
++    { 0x224, 0x100 / 2, 2, { 624, 696, 708, 4348, 4420, 4432 } },
++    // further items
++    { 0x324, 0x20 / 4, 4, { 502, 512, 7812, 8702, 8802 } },
++    // raiments: rows of costume_table.csv (Healer, Beast, Easterner ...)
++    { 0x344, (0x614 - 0x344) / 2, 2, { 112, 113, 114, 115, 116, 117, 118, 119, 130 } },
++} };
++constexpr size_t SYSTEM_SIZE = 1556;
++constexpr size_t CHECK_OFFSET = 0x10;
++
++// CRC-32/BZIP2 of the file with its check field zeroed
++uint32_t system_check(std::vector<uint8_t> data) {
++    std::fill_n(data.begin() + CHECK_OFFSET, 4, 0);
++    uint32_t c = 0xffffffff;
++    for (const uint8_t b : data) {
++        c ^= uint32_t(b) << 24;
++        for (int k = 0; k < 8; k++)
++            c = (c & 0x80000000) ? (c << 1) ^ 0x04C11DB7 : c << 1;
++    }
++    return c ^ 0xffffffff;
++}
++
++uint32_t read_le(const std::vector<uint8_t> &d, size_t o, size_t width) {
++    uint32_t v = 0;
++    for (size_t i = 0; i < width; i++)
++        v |= uint32_t(d[o + i]) << (8 * i);
++    return v;
++}
++
++void write_le(std::vector<uint8_t> &d, size_t o, size_t width, uint32_t v) {
++    for (size_t i = 0; i < width; i++)
++        d[o + i] = uint8_t(v >> (8 * i));
++}
++
++} // namespace
++
++bool unlock_addons(const fs::path &vita_fs, const fs::path &backup_dir, std::string &message) {
++    const fs::path dir = save_dir(vita_fs);
++    const fs::path bin = dir / "system.bin";
++    if (!fs::exists(bin)) {
++        message = "no save yet";
++        return true;
++    }
++    fs::ifstream in(bin, std::ios::binary);
++    std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++    in.close();
++    if (data.size() != SYSTEM_SIZE || read_le(data, 4, 4) != SYSTEM_SIZE || read_le(data, CHECK_OFFSET, 4) != system_check(data)) {
++        message = "system.bin is not in the expected format; left alone";
++        return false;
++    }
++    bool changed = false;
++    for (const auto &list : ADDON_LISTS) {
++        std::vector<uint32_t> ids;
++        for (size_t i = 0; i < list.capacity; i++) {
++            const uint32_t v = read_le(data, list.offset + i * list.width, list.width);
++            if (v == 0)
++                break;
++            ids.push_back(v);
++        }
++        const size_t before = ids.size();
++        for (const uint32_t id : list.addons)
++            if (std::find(ids.begin(), ids.end(), id) == ids.end())
++                ids.push_back(id);
++        if (ids.size() == before)
++            continue;
++        if (ids.size() >= list.capacity) {
++            message = "system.bin has no room for the add-ons; left alone";
++            return false;
++        }
++        std::sort(ids.begin(), ids.end());
++        for (size_t i = 0; i < ids.size(); i++)
++            write_le(data, list.offset + i * list.width, list.width, ids[i]);
++        changed = true;
++    }
++    if (!changed) {
++        message = "add-ons already recorded in the save";
++        return true;
++    }
++    write_le(data, CHECK_OFFSET, 4, system_check(data));
++
++    const fs::path backup = backup_dir / timestamp();
++    fs::create_directories(backup);
++    for (const char *name : { "system.bin", "system.bak" })
++        if (fs::exists(dir / name))
++            fs::copy_file(dir / name, backup / name, fs::copy_options::overwrite_existing);
++    for (const char *name : { "system.bin", "system.bak" }) {
++        if (!write_file(dir / name, data.data(), data.size())) {
++            message = std::string("writing ") + name + " failed";
++            return false;
++        }
++    }
++    message = "add-ons recorded in the save (previous system.bin in " + fs_utils::path_to_utf8(backup) + ")";
++    return true;
++}
++
+ bool export_save(const fs::path &vita_fs, const fs::path &dest, std::string &message) {
+     const fs::path dir = save_dir(vita_fs);
+     fs::create_directories(dest);
+diff --git a/vita3k/ss-delta/saves.h b/vita3k/ss-delta/saves.h
+index d5370f00..dd0879dc 100644
+--- a/vita3k/ss-delta/saves.h
++++ b/vita3k/ss-delta/saves.h
+@@ -35,4 +35,11 @@ bool import_save(const fs::path &vita_fs, const fs::path &source, const fs::path
+ // Copies the save's four files to the folder `dest`.
+ bool export_save(const fs::path &vita_fs, const fs::path &dest, std::string &message);
+ 
++// The add-ons (docs/decisions.md D14 in ss-delta): system.bin records what was bought on PSN as
++// lists of ids. Adds the released add-ons to those lists in the save's system.bin and .bak,
++// keeping what is there; the previous files go to `backup_dir`/<date and time>/ first. Does
++// nothing when there is no save yet or the add-ons are recorded already. Returns false with the
++// reason in `message` on an error; `message` also says what was done.
++bool unlock_addons(const fs::path &vita_fs, const fs::path &backup_dir, std::string &message);
++
+ } // namespace ss_delta
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index eec9e53c..039631c2 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -59,9 +59,10 @@ filter = Bilinear
+ volume = 100
+ 
+ [game]
+-; Experimental, not finished: offer the game the add-ons (costumes, hoods, a sigil) whose items
+-; are in its own data, as if bought on PSN. The game lists them, but does not hand them out yet.
+-dlc = false
++; Unlock the add-ons (raiments, hoods, additional and otherworldly pacts). Their content is in the
++; game's own data since update 1.30; PSN, which recorded the purchases, is closed. The save's
++; system.bin is changed once (a copy goes to ss-delta/save-backups/).
++dlc = true
+ 
+ [recompiled]
+ ; Run the recompiled modules natively (false: everything on the JIT, for comparison).
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index 9dd4d108..b17e4789 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -40,7 +40,7 @@ struct Settings {
+     // [audio]
+     int volume = 100;
+     // [game]
+-    bool dlc = false; // experimental: offer the add-ons whose items are in the game's data
++    bool dlc = true; // record the add-ons (whose content is in the game's data) in the save
+     // [recompiled]
+     bool use_recompiled = true;
+     bool jit = false; // keep the JIT for guest code without native code (NativeCPU otherwise)
+-- 
+2.56.0.windows.2
+

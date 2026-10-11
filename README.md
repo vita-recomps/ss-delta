@@ -26,6 +26,7 @@ Phase 8 (PC features) is mostly done:
   Vita3K's multiplier: 1920×1088 at 30 fps on every map at scale 2;
 * the Black Rite touch has key/gamepad bindings;
 * Vita saves can be imported and exported;
+* the add-ons (DLC) are unlocked;
 * F12 saves a screenshot.
 
 60 fps is studied but not shipped: a quest started at 60 fps doesn't

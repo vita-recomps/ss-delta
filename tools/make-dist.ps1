@@ -58,6 +58,11 @@ mouse is the touchscreen: left button front, right button rear. The Black
 Rite icon (touch and hold) is also on F and the gamepad's left trigger
 ([touch] in ss-delta.ini). F12 saves a screenshot to ss-delta\screenshots.
 
+The add-ons (raiments, hoods, additional pacts) are unlocked: their content
+is in the game since update 1.30, and ss-delta.exe records them in your save
+once ([game] dlc in ss-delta.ini; a copy of the previous file goes to
+ss-delta\save-backups).
+
 Saves are in the Vita file system (ux0\user\00\savedata\PCSA00152). To use a
 save from a Vita (decrypted, e.g. with VitaShell or Apollo), run
   ss-delta.exe --import-save <folder or .zip>

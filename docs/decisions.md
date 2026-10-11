@@ -474,3 +474,38 @@ notice (fork patch 0028).
   can be turned off.
 * Engine keys (`FPS`, `ForceDLC`, ...) can be tried without patches, but
   `FPS` turned out not to set the frame rate (02-baseline, 60 fps study).
+
+## D14 — The add-ons are unlocked by recording them in the save's system.bin (accepted, 2026-10-11)
+
+**Context:**
+
+* The add-ons' content (raiments, hoods, the additional and otherworldly
+  pacts) is in the game's data since update 1.30. PSN, where they were
+  sold, no longer exists. The owner asked for them to be unlocked when the
+  installed game has them.
+* `ForceDLC` in `boot_config.ini` is parsed but never read.
+* Answering the game's PSN entitlement queries locally works (the game
+  lists all 18), but it hands add-ons out only after an online download
+  step on Cassus's Claim Gift page, which does not complete offline
+  (tried in fork patch 0030, reverted in 0031).
+* Vita owners unlock them by swapping in a `system.bin` from a save that
+  had them. The file is four id lists plus a CRC-32/BZIP2 check, decoded
+  in 01-research.
+
+**Decision:** `ss-delta.exe` (`[game] dlc`, default on) adds the released
+add-ons' ids to those lists in the player's own `system.bin`/`.bak` at
+start, keeping anything already there, after checking that the installed
+game has the add-on pacts and raiments. The previous files are copied to
+`ss-delta/save-backups/` first. The ids are numbers in the fork's source;
+no third-party save is shipped or needed.
+
+**Rejected:**
+
+* Shipping or asking for a third-party `system.bin`: it would replace the
+  player's own, and the four lists are enough.
+* The PSN path: needs a fake online session the game never completes.
+
+**Consequences:**
+
+* The change is in the save, so it carries over to a Vita (same format).
+* Turning `dlc` off later does not remove them; restoring the backup does.

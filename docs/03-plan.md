@@ -475,12 +475,10 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
     (decrypted saves, e.g. from VitaShell or Apollo), with
     `--export-save`. Tested with a story-complete Apollo save.
-  * ◐ Add-ons (DLC): see [01-research](01-research.md) "Add-ons". The
-    game's entitlement list is answered offline (fork patch 0030,
-    `[game] dlc`, off by default), but the game only hands add-ons out
-    through an online download step on Cassus's Claim Gift page. The
-    post-shutdown fix on real Vitas replaces the save's `system.bin`;
-    reproducing what that file sets is the next step.
+  * ☑ Add-ons (DLC), D14: `ss-delta.exe` records the released add-ons in
+    the save's `system.bin` at start (`[game] dlc`, on), once the
+    installed game's data has them (1.30's pacts and raiments). Same bytes
+    as the file Vita owners swap in; the new outfits appear.
 
 **Exit:** a full playthrough is possible on keyboard/controller at
 ≥ 2× internal resolution. Status (2026-10-11): ≥ 2× is met on every map
