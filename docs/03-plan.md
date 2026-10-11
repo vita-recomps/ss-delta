@@ -482,7 +482,9 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * ☑ Stored on the PC, in the Vita file system folder.
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
     (decrypted saves, e.g. from VitaShell or Apollo), with
-    `--export-save`. Tested with a story-complete Apollo save.
+    `--export-save`, into any of the game's three slots (`--slot`).
+    Tested with a story-complete Apollo save in slot 2 next to the
+    owner's own.
   * ☑ Add-ons (DLC), D14: `ss-delta.exe` records the released add-ons in
     the save's `system.bin` at start (`[game] dlc`, on), once the
     installed game's data has them (1.30's pacts and raiments). Same bytes

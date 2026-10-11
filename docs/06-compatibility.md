@@ -45,6 +45,7 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | New game, name entry, intro | ✅ | user, scripted | Phase 6 playtest; save creation and the intro scripted in Phase 9 |
 | Save and load | ✅ | user, scripted | load from the title (scripted daily); saving in a quest by the user |
 | Import / export of a Vita save | ✅ | scripted | a story-complete save from Apollo's database (Phase 8) |
+| Several saves (the game's three slots) | ✅ | scripted | `--import-save ... --slot 2`; the load screen lists both, slot 2 loads the 100% save (patch 0035) |
 | Add-ons (raiments, pacts) | ✅ | scripted | recorded in `system.bin` (D14); Healer, Beast, Easterner raiments shown as new. Add-on pacts: see quests |
 
 ## Hub and Librom

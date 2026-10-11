@@ -65,9 +65,10 @@ ss-delta\save-backups).
 
 Saves are in the Vita file system (ux0\user\00\savedata\PCSA00152). To use a
 save from a Vita (decrypted, e.g. with VitaShell or Apollo), run
-  ss-delta.exe --import-save <folder or .zip>
-The save it replaces is kept in ss-delta\save-backups. To copy the save
-out: ss-delta.exe --export-save <folder>.
+  ss-delta.exe --import-save <folder or .zip> [--slot 2]
+The game has three save slots (default 1); the save folder as it was is kept
+in ss-delta\save-backups. To copy a slot out:
+  ss-delta.exe --export-save <folder> [--slot 2]
 
 ss-delta is built from Vita3K (https://github.com/Vita3K/Vita3K) and is under
 the GNU GPL version 2. The ssd_aot_*.dll files and the game files are derived

@@ -97,11 +97,13 @@ conventions.
 - A crash in `amdvlk64.dll` (`c0000409`) at quest load on every run means a
   stale shader in `cache/shaders/PCSA00152` (e.g. from a run with another
   `memory-mapping`). Move the folder aside rather than hunting further.
-- Saves: `ss-delta.exe --import-save <folder|zip> [--quiet]` / `--export-save
-  <dir>` (backups in `ss-delta/save-backups/`). A third-party
-  story-complete save is in `build/save-apollo/`; the owner's own save is
-  in `build/save-backup-20261011/`. Put the owner's save back after any
-  test.
+- Saves: the game has three slots, `datag000N.bin` + `SlotParam_N.bin`, and
+  one shared `system.bin` (the add-on record). `ss-delta.exe --import-save
+  <folder|zip> [--slot N] [--quiet]` / `--export-save <dir> [--slot N]`
+  (backups in `ss-delta/save-backups/`). The owner's install has their own
+  save in slot 1 and the story-complete Apollo save in slot 2 (owner's
+  request, 2026-10-11); load slot 2 for late-game tests instead of swapping
+  files. Older copies: `build/save-backup-*`.
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).
