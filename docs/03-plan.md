@@ -501,8 +501,10 @@ Matrix: [06-compatibility](06-compatibility.md).
 
 * ☐ A compatibility matrix like decimation's: story, all quest types, Avalon
   hub, sigils, Book (Librom) menus, FMV, audio, saves.
-* ☐ Comparisons against Vita3K for timing-sensitive systems (Havok physics,
-  AI).
+* ☑ Comparisons against Vita3K for timing-sensitive systems (Havok physics,
+  AI): an idle boss fight, five runs native and five on the JIT, ends the
+  same within the emulator's own run-to-run spread
+  ([02-baseline](02-baseline.md#native-against-jit-an-idle-fight-timed-2026-10-12)).
 
 **Exit:** the matrix has no blocking entries.
 

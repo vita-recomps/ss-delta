@@ -78,6 +78,7 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Other quest types: Phantom (`q_g`), AR (`ar000_00`), test (`testG`), TGS 2013 demo (`tgs2013`) | ✅ | scripted | 2–3 each started |
 | Mind's Eye | ✅ | scripted | Phase 7 |
 | Fights, Black Rites, sacrifice/save choices, quest clear | ✅ | user | combat, a sacrifice, a DLC quest cleared (2026-10-12) |
+| Physics and monster AI timing, native against JIT | ✅ | compared | b0514 idle, 5 runs each: same load time, player down after 24.0 s native and 23.1 s JIT (spread ±5 s in both), same sequence of events ([02-baseline](02-baseline.md#native-against-jit-an-idle-fight-timed-2026-10-12)) |
 
 ## Cutscenes, movies and audio
 

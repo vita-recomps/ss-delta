@@ -1038,3 +1038,38 @@ the depth clamp: with `full_3d = false` the bones are sharp.
   copying), the eboot's UV-scale constants, the composite's uniforms.
 * Full map sweep after the fix (`build/maps-uvfix`): all 50 map IDs
   consistent with the previous sweep, 29.3–29.8 fps mean.
+
+## Native against JIT: an idle fight, timed (2026-10-12)
+
+Phase 9 asks whether the recompiled code changes timing-sensitive behaviour
+(Havok physics, monster AI). The same `ss-delta.exe` ran the same quest
+start ten times, alternating `[recompiled] enabled = true` (all modules
+native, NativeCPU) and `false` (everything on dynarmic), so the CPU backend
+was the only difference. Quest `b0514` (ST23B, Stage Select index 317): the
+player stands still while two bosses arrive and kill them. A frame every
+~1.1 s from the start button; times from the frames' file times. *Play*: the
+first frame with the quest HUD. *Down*: the last HUD frame before the
+"A sorcerer is dying" screen. *Menu*: back on Stage Select.
+
+| | play (s after start) | down (s after play) | menu (s after play) |
+|---|---|---|---|
+| native ×5 | 18.7 (all) | 24.0 (20.9–32.0) | 28.1 (25.3–36.3) |
+| JIT ×5 | 18.6–18.7 | 23.1 (16.5–28.6) | 27.3 (20.9–33.0) |
+
+* The loading time is the same to the frame.
+* How long the idle player lasts varies by about ±5 s between runs in
+  **both** modes; the 0.9 s difference of the means is well inside that
+  (standard deviations 4.7 s native and 4.9 s JIT; Welch t ≈ 0.3).
+* Frames aligned on the start of play show the same sequence in all ten
+  runs: a small monster walks up, the winged boss lands from the left at
+  +3–6 s, the charges and the second boss's attacks at +9–15 s. Which run is
+  early or late does not follow the mode (the slowest of each mode is the
+  first run).
+* Run-to-run variation is expected: the game runs threads at host speed and
+  Vita3K is not deterministic, so frame-exact positions cannot be compared
+  between runs. The per-call differential mode (`SSD_AOT_DIFF`, Phase 5:
+  0 mismatches in 83,656 calls, and in 116,609 calls in the field) remains
+  the exact check; this one shows the outcome of a fight does not shift.
+
+**Result:** no difference between native and JIT in a fight's timing or
+outcome, within the run-to-run spread of the emulator itself.
