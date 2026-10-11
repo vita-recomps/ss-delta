@@ -230,6 +230,33 @@ numbers above:
   a flag in the save (`system.bin`) [web, GBAtemp]. So 1.30 is the right
   target. The engine also has a `ForceDLC` key in `boot_config.ini`
   (commented out in retail) [local].
+* **Add-ons** [local, 2026-10-11]:
+  * The list is the game's own `resource/database/network/entitlement_table_us.csv`
+    (`archive_patch3`): product id (`UP9000-PCSA00152_00-SSCnnn`), box id
+    (`COSTUME_01`, `PARTS_01`, `STAMP_01` ...), release version, comment.
+    21 rows: 18 released, `DBG001` (developer) and `SSC018`/`SSC020`
+    marked 配布予定なし (never released).
+  * `ForceDLC` (`boot_config.ini`) is parsed into the config's `+0x14` but
+    never read.
+  * The game asks PSN with `sceNpAuth`: an entitlement manager at
+    `*(*0x81c9a4e0 + 0x44)`, state machine `0x818ca438` (1 start request, 2
+    wait for the ticket, 3 fetch the id list into `+0x40` count / `+0x44`
+    ids, back to 0). Started by `0x818ca3c0` from the online-pass check
+    (`0x812782f4`, `STN001`) and from the download step of Cassus's
+    **Claim Gift** page (`0x816ae350`, its state 9).
+  * Hand-out: `0x816ae876` turns each listed add-on not yet received
+    (byte array `*0x81c9a160 + 0xc2ec8`, indexed by table row, in the
+    main save) into a gift on the Claim Gift page. It runs when that
+    page's download step ends, which needs a PSN sign-in and the network
+    (`sceNetCheckDialog`, then a network task); offline it never ends.
+  * On a Vita after the shutdown, replacing the save's `system.bin` and
+    `system.bak` with ones from a save that had the add-ons unlocks them:
+    new outfits, Carnatux's shop, the extra pacts [web, GBAtemp thread
+    625005]. Our `system.bin` (yours and the Apollo save's are identical)
+    is a 32-byte header (`1`, size `0x614`, `0`, format `0x22`, a 32-bit
+    check `0x199099c5`) and 1,536 zero bytes; the check is not a plain
+    CRC-32 or Adler-32 of the file (**hypothesis:** the add-on record is
+    in that body).
 * **Touch** (the game's English text, `ingame_event_us.msgt`,
   `ingame_tutorial_us.msgt`, `letter_text_01_us.msgt`, `online_text_us.msgt`)
   [local, 2026-10-11]:

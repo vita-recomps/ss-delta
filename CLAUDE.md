@@ -88,6 +88,13 @@ conventions.
   format, `[eboot.bin]` then `seg:offset hexbytes`, little-endian values).
   Remove the file after use. A code patch disables native code for the
   eboot.
+- `record:<n>:<dir>` (v3kdrive, `ss-delta.exe`) saves the next n rendered
+  frames as PNGs: use it for glitches that last a few frames (the ST03A
+  water patch is 5 frames). `close` now posts WM_CLOSE and waits up to 8 s
+  before killing, so the async log is complete.
+- A crash in `amdvlk64.dll` (`c0000409`) at quest load on every run means a
+  stale shader in `cache/shaders/PCSA00152` (e.g. from a run with another
+  `memory-mapping`). Move the folder aside rather than hunting further.
 - Saves: `ss-delta.exe --import-save <folder|zip> [--quiet]` / `--export-save
   <dir>` (backups in `ss-delta/save-backups/`). A third-party
   story-complete save is in `build/save-apollo/`; the owner's own save is

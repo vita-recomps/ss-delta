@@ -959,3 +959,36 @@ render resolution before and after the walk.
 * Next steps if 60 fps is pursued: find the loader's budget (or run
   loading at 30 and gameplay at 60), then compare gameplay timings against
   30 fps.
+
+## ST03A water: a dark patch during the opening fly-through (2026-10-11, open)
+
+Seen by the user: early in ST03A's opening camera fly-through, a dark,
+straight-edged shape cuts through the water near the bottom of the screen.
+It is gone once the character spawns. The user saw something similar on
+another water map (not identified).
+
+* **Reproduced.** Every rendered frame of the intro was recorded (the new
+  `record:` step). Stage Select ST03A, frames from 7 s after the quest
+  starts: the patch shows for 5 frames (~170 ms, frames ~137–141), on the
+  shot that skims the water. Screenshots taken every second miss it,
+  which is why the earlier sweeps did not show it.
+* **What it is.** The whole water surface is one draw call (fragment
+  shader `34b195c9`, vertex `dbd8accb`, 7,566 indices, four textures:
+  albedo, light map, a multi map, an environment cube). Replacing the
+  shader's output with each input in turn shows a sharp quad edge in the
+  light-map coordinates, in `v_Color1` and above all in the
+  environment-map lookup (a vertex-computed reflection vector), which is
+  dark inside the patch. So one patch of the mesh gets different per-vertex
+  results; it is not a texture.
+* **Ruled out:** memory mapping (also with it disabled), the recompiled
+  code (also on the JIT), every other shader in the frame (skipped one at
+  a time), and float edge cases in the translated vertex shader (RCP, LOG
+  and RSQ made finite: no change).
+* **Open.** Whether the Vita shows it too (a hardware look at ST03A's
+  intro would settle it, as for ST17). Next steps if not: dump the water
+  draw's vertex streams and uniforms on a patch frame and a clean frame.
+* Side finding: a run with `memory-mapping` disabled leaves shaders in the
+  cache translated for that mode (keyed by the GXP alone). With the normal
+  mode they crash the AMD driver (`amdvlk64.dll`, `c0000409`) at quest
+  load, on every later run, until the cache is cleared. Players can't hit
+  this: `ss-delta.exe` fixes the mode.

@@ -464,7 +464,7 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * The rest takes buttons or the mouse: the post-battle "touch enemies
     or allies" choice, pacts in Phantom Quests, the quest-intro skip
     (START also skips it).
-* ◐ **60 fps study** (not shipped; [02-baseline](02-baseline.md#60-fps-study)).
+* ◐ **60 fps study** (deferred by the owner, 2026-10-11; not shipped; [02-baseline](02-baseline.md#60-fps-study)).
   * The cap is the main loop's frame timer, created for 30 fps
     (`0x812ab888`), plus the display flip threshold of 2 vblanks.
   * `[debug] frame_rate = 60` sets both in memory: 57 fps on this
@@ -475,8 +475,12 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
     (decrypted saves, e.g. from VitaShell or Apollo), with
     `--export-save`. Tested with a story-complete Apollo save.
-  * ☐ DLC entitlement: the game has a `ForceDLC` engine flag. Some of the
-    DLC was sold, so turning it on is the owner's call. Not done.
+  * ◐ Add-ons (DLC): see [01-research](01-research.md) "Add-ons". The
+    game's entitlement list is answered offline (fork patch 0030,
+    `[game] dlc`, off by default), but the game only hands add-ons out
+    through an online download step on Cassus's Claim Gift page. The
+    post-shutdown fix on real Vitas replaces the save's `system.bin`;
+    reproducing what that file sets is the next step.
 
 **Exit:** a full playthrough is possible on keyboard/controller at
 ≥ 2× internal resolution. Status (2026-10-11): ≥ 2× is met on every map
