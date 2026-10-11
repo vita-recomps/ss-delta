@@ -209,6 +209,16 @@ numbers above:
     `Quest Select`, `CutEvent Select`, `DebugMenu`, `BookEpisode`,
     `BookEnding`, `BookMenu`, `EndingDelta`, `StaffRoll` and
     `[G] HarpyBattle Walhalla`.
+  * What some of them do [local, 2026-10-11]:
+    * `EndingDelta` starts the final battle against Magusar.
+    * `StaffRoll` shows a two-line debug menu ("no clear" / "clear") and
+      plays the credits.
+    * `BookEnding` stays black, on upstream Vita3K too.
+    * The debug menus confirm with **circle**, not cross.
+* **Saves:** `ux0:user/00/savedata/PCSA00152/` holds `datag0001.bin` (979,168
+  bytes) and `system.bin` (1,556 bytes), each with a `.bak` copy. In
+  Vita3K they are plaintext; a decrypted save from another console (Apollo's
+  PSV database) loads by copying those four files [local].
 * **Loose files override archives.** The engine `stat()`s loose files first,
   and `archive_patch1` is an unused patch slot (1.30 ships `archive_patch3`).
   Both are modding hooks [loktar].

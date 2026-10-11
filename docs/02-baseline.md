@@ -703,7 +703,8 @@ looked glitchy and shimmered with grain while the camera moved, and looked
 fine while it was still. The boss killed the idle player within the 75 s
 run, so the run's screenshot shows the menu.
 
-* Not compared with hardware yet. It may be the game's own look.
+* **Hardware: the same.** On a real Vita the arena ground shimmers during
+  camera movement too (the user, 2026-10-11). Not a bug of ours.
 * Not recompilation: the differential check in that run found no mismatch
   in 3,143 calls.
 * **Sampler trace (2026-10-11).** A temporary trace logged the sampler
@@ -718,9 +719,9 @@ run, so the run's screenshot shows the menu.
   * Sampler settings are passed through as the game sets them: linear
     min/mag filters, trilinear on some, LOD bias 0 (31) or negative (23,
     15), no LOD minimum.
-* **Hypothesis:** the grain is the game's own aliasing. A repeating
-  texture without mips aliases while the camera moves on any GPU,
-  hardware included. To confirm on a Vita.
+* So the grain is the game's own aliasing: a repeating texture without
+  mips aliases while the camera moves on any GPU. That the mipless
+  textures cause it is still a **hypothesis** (likely, not isolated).
 * Phase 8 option: build mip chains for mipless repeating textures at
   upload, as a PC enhancement that changes the look.
 * ST17B shares the ground and looks the same.
@@ -838,5 +839,42 @@ it broken: only the weak-spot circles appear, without the outlines.
   scripts, and they need a quest context to start.
 * The story scenes in the user's playtest (intro and first story quest,
   2026-10-10) had no glitches besides the ghost book (fixed).
-* A scripted pass over every story scene would need a save with the
-  whole story unlocked.
+
+**Story scenes with a late save (2026-10-11).** The user supplied a
+third-party save with the story complete (Apollo's PSV save database,
+`00000002.zip`, kept out of the repository). It is plaintext, in the same
+layout as Vita3K's `ux0/user/00/savedata/PCSA00152/` (`datag0001.bin/.bak`,
+`system.bin/.bak`; its `sce_sys/` isn't needed). The run copied those four
+files over the user's save and put the user's save back afterwards
+(`build/save-backup-20261011/`). Nothing was saved in between.
+Scripted through `ss-delta.exe`, all modules native, 27–30 fps:
+
+* **Librom's Mad Chronicle:** every Magusar chapter and Sortiara's are
+  listed. One entry in "The Memories Remain" is an animated ink smudge with
+  text showing at its edge. That is the story's "clouded memory": Librom
+  says so ("I feel that I'm missing some vital memory").
+* **A late chapter (The Memories Remain Ch. 1):** title page, text and
+  illustration pages, the red-ink highlight lines, the bright page
+  transition, the monster card, the transport effect, the in-engine boss
+  fly-by, and the quest at level 99. All correct.
+* **The final choice (Fight Magusar):** Librom's dialogue, Yes/No, the
+  Save/Sacrifice hands. Holding R (12 s; 4 s wasn't enough for the script)
+  plays the sacrifice scene: the journal burns, then a golden memory
+  vortex, then Librom's soul as a glowing figure, the cage, a red loading
+  screen and Magusar's in-engine introduction and transformation. Then
+  the battle starts. All correct.
+  * Holding L (save Librom) makes him refuse, and the game returns to the
+    hub. It isn't a separate branch.
+  * The idle character loses the battle: "This is not the end…", then a
+    save prompt. The run declined it.
+* **Debug sequences** (`BootSequence`):
+  * `EndingDelta` starts the final battle (the red wasteland). Correct.
+  * `StaffRoll` opens a debug menu ("no clear" / "clear"; circle
+    confirms). "No clear" plays the credits: clouds, particles,
+    scattering letters. Correct.
+  * `BookEnding` stays pure black at 30 fps, with or without input. Upstream
+    Vita3K on OpenGL does the same. It probably needs context the debug
+    boot doesn't set (**hypothesis**). It is not a difference from the
+    reference.
+* **Not seen:** the endings after defeating Magusar. They need a won final
+  battle, which a script can't play.

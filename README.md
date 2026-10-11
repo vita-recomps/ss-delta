@@ -18,14 +18,15 @@ are recompiled to C++, and a build without the dynarmic JIT plays at 30 fps.
 `tools/install-game.ps1` turns the player's own dump and firmware into a
 playable folder, generating and compiling everything locally.
 
-Phase 7 (rendering correctness) is nearly done:
+Phase 7 (rendering correctness) is done:
 * every quest map renders correctly at 30 fps (`tools/map-sweep.ps1`, 48
   of 50 map IDs);
+* the story scenes up to the final battle render correctly;
 * Mind's Eye works;
 * the bloom lag is fixed.
 
-The later story scenes and a hardware comparison of one arena's ground
-are still open. See the [plan](docs/03-plan.md).
+Only the endings after the final battle remain to be playtested. Phase 8
+(PC features) is next. See the [plan](docs/03-plan.md).
 
 ## Documentation
 

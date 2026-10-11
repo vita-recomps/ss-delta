@@ -399,7 +399,7 @@ first quest. 0 JIT instructions, 30 fps. Open items: the remaining offline
 stubs (NP, ad hoc and others are Vita3K's HLE stubs) and 17 font functions
 that use NEON forms not translated yet.
 
-## Phase 7 — Rendering correctness (L) ◐
+## Phase 7 — Rendering correctness (L) ☑
 
 Results: [02-baseline](02-baseline.md#phase-7-map-sweep-2026-10-11).
 
@@ -413,23 +413,29 @@ Results: [02-baseline](02-baseline.md#phase-7-map-sweep-2026-10-11).
   * 48 of 50 map IDs swept, all correct at 29.3–29.7 fps.
   * ST17A's only quest doesn't start from Stage Select. It shares its
     arena with ST17B/C.
-  * The ST17B/C ground grain in motion is most likely the game's own
-    aliasing of mipless textures (**hypothesis**, to compare with a Vita).
+  * The ST17B/C ground grain in motion is the game's own look: a real Vita
+    shimmers the same (the user, 2026-10-11).
 * ☑ Shader stutter: decided against install-time translation (D12). Shader
   translation depends on draw-time hints, so pipelines compile in the
   background on first use and are cached. `ss-delta.exe` hides the
   compile notice (patch 0028).
-* ◐ Story scenes:
+* ☑ Story scenes:
   * the book-page episodes render correctly;
   * the intro and first story quest were playtested (2026-10-10);
-  * the rest need a late save or further playtests.
+  * with a story-complete save (2026-10-11): the late chapters' pages,
+    the boss intros, the sacrifice scene, Magusar's introduction and the
+    credits all render correctly;
+  * not seen: the endings after defeating Magusar, which need a won final
+    battle (a playtest).
 * ☑ Bloom drawn frames late (ghost book, title butterfly): fixed by fork
   patch 0019, confirmed by the user.
 
 **Exit:** a visual sweep of all maps and cutscenes with no known rendering
-bugs. Met for the maps. Still open:
-* the cutscenes beyond the first story chapter;
-* a hardware look at the ST17 ground.
+bugs. **Met** (2026-10-11): 48 of 50 map IDs (ST17A is unreachable from
+Stage Select but uses the ST17B/C arena), and the story scenes up to the
+final battle. No known rendering bugs remain. The ST17 ground shimmer is
+also there on a real Vita. Left for a playtest: the endings after
+defeating Magusar.
 
 ## Phase 8 — PC features (M) ☐
 
