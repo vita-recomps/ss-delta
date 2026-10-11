@@ -478,7 +478,7 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * `[debug] frame_rate = 60` sets both in memory: 57 fps on this
     machine, and player movement keeps its speed.
   * Blocker: a quest started at 60 fps never finishes loading.
-* ◐ **Saves.**
+* ☑ **Saves.**
   * ☑ Stored on the PC, in the Vita file system folder.
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
     (decrypted saves, e.g. from VitaShell or Apollo), with
