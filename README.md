@@ -16,8 +16,16 @@ gamepad bindings are in `ss-delta.ini`, and it runs offline. It runs the game
 on native code alone: the game's modules and the firmware modules it loads
 are recompiled to C++, and a build without the dynarmic JIT plays at 30 fps.
 `tools/install-game.ps1` turns the player's own dump and firmware into a
-playable folder, generating and compiling everything locally. Next is
-Phase 7, rendering correctness. See the [plan](docs/03-plan.md).
+playable folder, generating and compiling everything locally.
+
+Phase 7 (rendering correctness) is nearly done:
+* every quest map renders correctly at 30 fps (`tools/map-sweep.ps1`, 48
+  of 50 map IDs);
+* Mind's Eye works;
+* the bloom lag is fixed.
+
+The later story scenes and a hardware comparison of one arena's ground
+are still open. See the [plan](docs/03-plan.md).
 
 ## Documentation
 

@@ -399,18 +399,37 @@ first quest. 0 JIT instructions, 30 fps. Open items: the remaining offline
 stubs (NP, ad hoc and others are Vita3K's HLE stubs) and 17 font functions
 that use NEON forms not translated yet.
 
-## Phase 7 — Rendering correctness (L) ☐
+## Phase 7 — Rendering correctness (L) ◐
 
-* ☐ Fix the overexposure and black blocks seen in the baseline on both
-  backends. Start with surface sync and `high-accuracy`, then fog/particle
-  blending.
-* ☐ Mind's Eye overlay (monster HP, soul shards).
-* ☐ Every quest map renders correctly (spot check through Stage Select).
-* ☐ Async pipeline/shader compilation at install time: translate every GXP
-  the game ships ahead of time, so there is no in-game stutter.
+Results: [02-baseline](02-baseline.md#phase-7-map-sweep-2026-10-11).
+
+* ☑ Overexposure and black blocks: none on any map in our Vulkan fork.
+  They were OpenGL symptoms of the baseline. Fog, haze and smoke were
+  fixed by the settings in D4 update 4.
+* ☑ Mind's Eye overlay works: health-coloured monster silhouettes, weak
+  spots and hidden spots. Its depth read is served correctly; Plus's
+  `d248beee` isn't needed.
+* ◐ Every quest map renders correctly (`tools/map-sweep.ps1`, 2026-10-11):
+  * 48 of 50 map IDs swept, all correct at 29.3–29.7 fps.
+  * ST17A's only quest doesn't start from Stage Select. It shares its
+    arena with ST17B/C.
+  * The ST17B/C ground grain in motion is most likely the game's own
+    aliasing of mipless textures (**hypothesis**, to compare with a Vita).
+* ☑ Shader stutter: decided against install-time translation (D12). Shader
+  translation depends on draw-time hints, so pipelines compile in the
+  background on first use and are cached. `ss-delta.exe` hides the
+  compile notice (patch 0028).
+* ◐ Story scenes:
+  * the book-page episodes render correctly;
+  * the intro and first story quest were playtested (2026-10-10);
+  * the rest need a late save or further playtests.
+* ☑ Bloom drawn frames late (ghost book, title butterfly): fixed by fork
+  patch 0019, confirmed by the user.
 
 **Exit:** a visual sweep of all maps and cutscenes with no known rendering
-bugs.
+bugs. Met for the maps. Still open:
+* the cutscenes beyond the first story chapter;
+* a hardware look at the ST17 ground.
 
 ## Phase 8 — PC features (M) ☐
 

@@ -704,11 +704,26 @@ fine while it was still. The boss killed the idle player within the 75 s
 run, so the run's screenshot shows the menu.
 
 * Not compared with hardware yet. It may be the game's own look.
-* **Hypothesis:** a rendering difference (texture filtering, mip
-  selection or dithering), not recompilation. The differential check in
-  that run found no mismatch in 3,143 calls. A JIT-only run of the same
-  quest would settle it.
-* Belongs to Phase 7 (rendering correctness).
+* Not recompilation: the differential check in that run found no mismatch
+  in 3,143 calls.
+* **Sampler trace (2026-10-11).** A temporary trace logged the sampler
+  state of every texture the arena binds:
+  * 111 swizzled textures. 73 of them, 128 px or larger and mostly
+    UBC1/UBC3 with repeat wrapping, have a single mip level.
+  * Textures with a chain are sampled with all of it. The sky (1024×512,
+    2048×512) has 11 and 12 levels, as in the stage's `.mxt` files.
+  * The game's own data has the same split. Over all 9,540 textures in
+    the `archive` `.gxt`/`.mxt` files, 5,625 of the 128 px or larger
+    swizzled ones ship **without** mips, against 3,135 with full chains.
+  * Sampler settings are passed through as the game sets them: linear
+    min/mag filters, trilinear on some, LOD bias 0 (31) or negative (23,
+    15), no LOD minimum.
+* **Hypothesis:** the grain is the game's own aliasing. A repeating
+  texture without mips aliases while the camera moves on any GPU,
+  hardware included. To confirm on a Vita.
+* Phase 8 option: build mip chains for mipless repeating textures at
+  upload, as a PC enhancement that changes the look.
+* ST17B shares the ground and looks the same.
 
 ## Ghost book in the main menu (2026-10-10, fixed)
 
@@ -766,4 +781,62 @@ foreground (`menu.png` in the repository root, not committed).
 * Audio. It was muted for the runs.
 * Higher resolution multipliers, and `high-accuracy: true`.
 * Per-thread CPU time.
-* The Mind's Eye overlay bug (D-pad down in a quest).
+
+## Phase 7 map sweep (2026-10-11)
+
+Every quest map through Stage Select in `ss-delta.exe`, all nine modules
+native (NativeCPU, no JIT), Vulkan on the Radeon 760M.
+`tools/map-sweep.ps1` repeats it.
+
+* **Map list:** `quest_param.csv` from `archive_patch3`, read with
+  `tools/lspk.py` and `tools/questmaps.py`. It has 581 quests on 50 map
+  IDs, plus 3 quests without one. The Stage Select index is the quest's
+  row.
+* **Per map:** the map's first quest, screenshots 40 s after starting,
+  with Mind's Eye on, after three camera turns and after a 2.5 s walk.
+  About 2.5 minutes a map, 2 hours in all.
+* **Frame rate:** 29.3–29.7 fps mean on every map, counted from 20 s
+  after boot, so the quest's loading screen is included. One-second
+  minimums were 14–29. Where in the run the dips fell was not checked.
+
+Results:
+
+| Result | Maps |
+|---|---|
+| renders correctly | 48: ST00A–C, ST01A–C, ST02A–C, ST03A–B, ST04A–B, ST05A–B, ST06A–B, ST07A–B, ST08A–B, ST09A–B, ST10A–B, ST12A–B, ST13A–B, ST14A–B, ST15A–B, ST16A–B, ST17B–C, ST20A–B, ST21A–B, ST22A–C, ST23A–B, SE01A, STAR, LEVEL_TEST_00GA |
+| not reached | ST17A: its one quest (index 580, `q_l1206`) doesn't start from Stage Select. It shares the arena with ST17B/C |
+| no map ID | 3 quests from index 572 |
+
+* On boss maps (ST13B, ST22C, ST23A) the boss killed the idle player
+  early. The screenshots taken before that show the map correctly.
+* `LEVEL_TEST_00GA` is a developer test map: flat ground, sky, and a dark
+  band at the horizon where no geometry is.
+* No overexposure and no black blocks on any map. Those were OpenGL
+  symptoms (above); the fork runs Vulkan.
+* ST17B/ST17C ground grain: see "Ground shimmer in motion".
+
+**Mind's Eye works.** Vita3K issue #3852 and Vita3K-Plus issue #34 report
+it broken: only the weak-spot circles appear, without the outlines.
+
+* In our build, monsters show as health-coloured (green) silhouettes or
+  outlines, with pink weak spots. Hidden spots and items glow white or
+  green. Seen on ST01B, ST05B, ST08A, ST08B, ST00C, ST10B and ST22A.
+* The outlines read the main depth buffer as a texture. The temporary
+  trace shows how the fork serves that read:
+  * The game samples the 4× MSAA depth (`60dc0080`, 1440×816 samples) as a
+    1472×832 X8U24 texture, tiled-rounded (patch 0006).
+  * The fork copies the 720×408 pixel-rate depth image into a 736×416
+    view, the same mapping halved.
+  * The 1024² shadow map is read directly.
+* Plus's fix for the same thing (`d248beee`) is not needed on our fork.
+
+**Story scenes:**
+
+* The book-page episodes render correctly (`BootSequence BookEpisode`,
+  Sortiara's chronicle).
+* The debug `CutEvent Select` menu lists only tutorial and prison event
+  scripts, and they need a quest context to start.
+* The story scenes in the user's playtest (intro and first story quest,
+  2026-10-10) had no glitches besides the ghost book (fixed).
+* A scripted pass over every story scene would need a save with the
+  whole story unlocked.

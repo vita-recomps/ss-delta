@@ -72,6 +72,10 @@ conventions.
   (no `--load-base`: the dumps are relocated) and add `fw_<name>` to
   `RECOMP_MODULES` in `build/recomp`. `ss-delta.exe` runs on NativeCPU (no
   JIT) by default.
+- Game archives: `python -I tools/lspk.py list|extract <.../retail/archive> ...`
+  (`archive_patch3` overrides `archive`). `tools/questmaps.py` turns
+  `quest_param.csv` into the map list `tools/map-sweep.ps1` sweeps through
+  Stage Select (screenshots under `build/`, never committed).
 - `recomp/run-tests.ps1` runs the test binaries under a memory and time
   ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
   too: a runaway test once hung the machine (14 GB RAM).

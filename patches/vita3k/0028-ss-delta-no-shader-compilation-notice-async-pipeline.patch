@@ -1,0 +1,29 @@
+From f64e83bfb3ffe89bd06840a6dd55d2ac09820677 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 03:19:33 +0200
+Subject: [PATCH] ss-delta: no shader compilation notice; async pipeline
+ compilation on explicitly
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/main.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index 72bc8736..d5ff421f 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -167,6 +167,10 @@ int main(int argc, char *argv[]) {
+     cfg.high_accuracy = true;
+     cfg.disable_surface_sync = false;
+     cfg.memory_mapping = "double-buffer";
++    // a pipeline seen for the first time is compiled in the background (its draws are skipped
++    // meanwhile) and kept in the pipeline cache next to the executable; no on-screen notice
++    cfg.async_pipeline_compilation = true;
++    cfg.show_compile_shaders = false;
+     cfg.validation_layer = settings.validation_layer;
+     // the player's choices
+     cfg.resolution_multiplier = settings.scale;
+-- 
+2.56.0.windows.2
+

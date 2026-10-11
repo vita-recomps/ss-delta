@@ -390,3 +390,46 @@ instruction. Its main job was driving threads into native code.
   differential checks.
 * The ELF dumps also replace an external SELF decryptor. The install flow
   (`tools/install-game.ps1`) gets every module from them.
+
+## D12 — Shaders and pipelines compile in the background on first use; nothing is translated at install time (accepted, 2026-10-11)
+
+**Context:** Phase 7 planned to translate every GXP the game ships at
+install time, so that no shader compiles in game. The game's shaders are in
+487 `resource/data/shader/psp2/*.csp` containers (`KPKy`, several GXPs
+each).
+
+**Findings:**
+
+* Vita3K's SPIR-V translation depends on draw-time hints as well as the
+  GXP: the texture formats bound to each sampler (component type and
+  count), the colour surface format and the vertex attribute formats
+  (`shader::Hints`). Translating a GXP without them can give a different,
+  wrong shader. The cache key is the GXP hash alone, so a wrong
+  install-time translation would stick.
+* The expensive part on Vulkan is the pipeline, keyed by the GXP pair plus
+  the render state (blending, attribute layout, primitive type, render
+  pass). Those combinations exist only at draw time.
+* With `async-pipeline-compilation` (on), a pipeline seen for the first
+  time compiles on worker threads and its draws are skipped meanwhile. The
+  SPIR-V files and the driver pipeline cache persist next to the exe.
+* Measured with an empty cache (debug build, title → Stage Select →
+  ST08A, 2026-10-11): 29.5 fps mean, minimum 28 in one-second samples.
+  Mind's Eye, opened for the first time, compiled 6 pipelines and showed
+  its outlines within the second.
+
+**Decision:** keep Vita3K's runtime translation with background pipeline
+compilation and the persistent caches. `ss-delta.exe` fixes
+`async-pipeline-compilation` on and hides the "N pipelines compiled"
+notice (fork patch 0028).
+
+**Rejected:**
+
+* Install-time translation of every GXP: wrong without draw-time hints.
+* Shipping a prebuilt cache: derived from the game (D2).
+
+**Consequences:**
+
+* On a fresh install, an object can be missing for a frame or two the
+  first time its pipeline is needed. There are no frame-time stalls.
+* A cache built by one translator version stays valid only for that
+  version (`CLAUDE.md`, stale shader cache).

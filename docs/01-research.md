@@ -184,14 +184,31 @@ numbers above:
   * **Hash:** CRC-32/BZIP2 of the lower-cased path. This is the same hash
     family as Dissidia's PACKAGE_INFO.
   * **`.pk`:** headerless; members are zlib streams, or raw when csize is 0.
-  * **`.pfs`:** the directory tree and name pool.
+  * **`.pfs`:** the directory tree and name pool. Layout (verified,
+    `tools/lspk.py`):
+    * header: `u32 0, 0, dirs, files`;
+    * one 24-byte record per directory:
+      `{index, parent (0xffffffff for the root), first child, child count,
+      first file, file count}`;
+    * one `u32` name offset per directory, then per file, into the name
+      pool that follows.
+    * A member's key is the hash of `dir/.../name`, for example
+      `resource/boot/quest_param.csv`.
   * **Verified on our 1.30 data:**
     * `archive`: 50,821/50,821 members decompress and every name hashes to a
       pkh entry;
     * `archive_patch3`: 3,026/3,026.
 * **Content formats:** `.mdl` (`KPKy`), `.gxt`/`.mxt` (Vita GXT textures),
   `.mtb` motion, `.eff` effects, `.scene` (Shift-JIS XML), `.msgt`
-  (UTF-16 text), `quest_param.csv` (561 quests).
+  (UTF-16 text), `quest_param.csv`. The 1.30 copy in `archive_patch3`
+  (`resource/boot/`) has 581 quests on 50 map IDs (column `MAP(ID)`). The
+  debug Stage Select counts quests by their row in this table.
+  * Shaders: 487 `resource/data/shader/psp2/*.csp`, `KPKy` containers of
+    GXPs.
+  * The boot sequences the eboot knows include `Title`,
+    `Quest Select`, `CutEvent Select`, `DebugMenu`, `BookEpisode`,
+    `BookEnding`, `BookMenu`, `EndingDelta`, `StaffRoll` and
+    `[G] HarpyBattle Walhalla`.
 * **Loose files override archives.** The engine `stat()`s loose files first,
   and `archive_patch1` is an unused patch slot (1.30 ships `archive_patch3`).
   Both are modding hooks [loktar].
