@@ -1,0 +1,33 @@
+From 77353d4d7ac541d68e9373209c61699e9b7c234e Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 21:49:29 +0200
+Subject: [PATCH] ss-delta: ignore a UTF-8 byte order mark at the start of
+ ss-delta.ini
+
+Notepad and PowerShell can write one; it made the first line unreadable.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/settings.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index 039631c2..97d07016 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -163,7 +163,12 @@ Settings load_settings(const fs::path &dir) {
+     {
+         fs::ifstream file(path);
+         std::string line, section;
++        bool first_line = true;
+         while (std::getline(file, line)) {
++            // a UTF-8 byte order mark, as Notepad and PowerShell may write
++            if (first_line && line.starts_with("\xEF\xBB\xBF"))
++                line.erase(0, 3);
++            first_line = false;
+             line = trim(line);
+             if (line.empty() || line[0] == ';' || line[0] == '#')
+                 continue;
+-- 
+2.56.0.windows.2
+

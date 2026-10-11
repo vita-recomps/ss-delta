@@ -47,6 +47,8 @@ foreach ($line in Get-Content $List) {
     try {
         python -I $drive $Bin start | Out-Null
         python -I $drive $Bin run ($steps -join ',') "$OutDir/$map-fps.csv" | Out-Null
+        # still running at the end of the steps? (a crash or a hang that closes the window shows here)
+        $alive = [bool](Get-Process ss-delta -ErrorAction SilentlyContinue)
         python -I $drive $Bin close | Out-Null
     } finally {
         python -I $drive $install bootseq PCSA00152 Title | Out-Null
@@ -54,6 +56,7 @@ foreach ($line in Get-Content $List) {
     $fps = Get-Content "$OutDir/$map-fps.csv" -ErrorAction SilentlyContinue | Select-Object -Skip 1 |
         ForEach-Object { $c = $_ -split ','; [pscustomobject]@{ t = [double]$c[0]; fps = [double]$c[2] } } |
         Where-Object { $_.t -gt 20 }
-    '{0} {1} fps mean {2:N1} min {3}' -f $map, $k, ($fps | Measure-Object fps -Average).Average,
-        ($fps | Measure-Object fps -Minimum).Minimum | Tee-Object -Append (Join-Path $OutDir 'sweep.txt')
+    '{0} {1} fps mean {2:N1} min {3} samples {4} {5}' -f $map, $k, ($fps | Measure-Object fps -Average).Average,
+        ($fps | Measure-Object fps -Minimum).Minimum, @($fps).Count, $(if ($alive) { 'running' } else { 'EXITED' }) |
+        Tee-Object -Append (Join-Path $OutDir 'sweep.txt')
 }

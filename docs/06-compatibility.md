@@ -1,0 +1,95 @@
+# 06 — Compatibility matrix
+
+What works in each part of Soul Sacrifice Delta (PCSA00152, 1.30) in
+`ss-delta.exe`, and how it was checked. Phase 9 of the [plan](03-plan.md)
+keeps this current.
+
+* **Status:** ✅ works · ⚠️ works with a known issue · ❌ broken ·
+  ❔ not checked yet.
+* **Checked by:**
+  * *scripted*: driven by `tools/v3kdrive.py` (Stage Select sweeps with
+    `tools/map-sweep.ps1`, routes through the menus on a save), judged
+    from screenshots, frame-rate samples and the log;
+  * *user*: played by the user;
+  * *compared*: side by side with Vita3K or a real Vita.
+
+**Phase 9 quest pass (2026-10-11):** 36 quests, the first, middle and last of
+each of the 12 types in `quest_param.csv` (`build/quests-p9.txt`), started
+from Stage Select with `tools/map-sweep.ps1`: screenshots after loading,
+with Mind's Eye, after camera turns and a walk. All still running at the
+end, 29.5–29.7 fps mean. h0301 stayed on Stage Select once (script) and
+started on a rerun.
+
+Unless noted: all modules native (NativeCPU, no JIT), Vulkan on the Radeon
+760M, `full_3d` on. Scripts can start quests and walk menus, but they
+cannot win fights: ✅ from a script means "reached and behaved", not
+"played through".
+
+## Settings, display and input
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| `ss-delta.ini` settings, warnings for unknown keys | ✅ | scripted | Phase 6 |
+| 3D at 960×544 (`full_3d`), `scale` 2 (3D at 1920×1088) | ✅ | scripted, user | all 50 map IDs at 29.3–29.8 fps (Phase 8); depth-of-field haze at 960×544 fixed (patch 0033) |
+| Keyboard and gamepad bindings | ✅ | user | Phase 6 playtests |
+| Mouse as the touchscreen | ✅ | user | title, name entry |
+| Black Rite on a key / trigger (`[touch]`) | ❔ | | touches reach the game (scripted); the binding in a fight needs a playtest |
+| F11 / Alt+Enter fullscreen, F12 screenshot | ✅ | scripted | screenshots at render resolution |
+| Offline: no network use | ✅ | scripted | Phase 6 |
+
+## Boot, saves and add-ons
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| Boot, title, main menu | ✅ | user, scripted | |
+| New game, name entry, intro | ✅ | user, scripted | Phase 6 playtest; save creation and the intro scripted in Phase 9 |
+| Save and load | ✅ | user, scripted | load from the title (scripted daily); saving in a quest by the user |
+| Import / export of a Vita save | ✅ | scripted | a story-complete save from Apollo's database (Phase 8) |
+| Add-ons (raiments, pacts) | ✅ | scripted | recorded in `system.bin` (D14); Healer, Beast, Easterner raiments shown as new. Add-on pacts: see quests |
+
+## Hub and Librom
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| Hub (the prison), Librom view | ✅ | scripted, user | |
+| Mad Chronicle (story chapter list, pages) | ✅ | scripted | late save: all chapters listed; a late chapter read (Phase 7) |
+| Portraiture: appearance, raiments, offerings | ✅ | scripted | |
+| Bazaar Ledger: Carnatux, Cassus (gifts) | ✅ | scripted | menus open; buying not checked |
+| Lore, Postscript | ❔ | | |
+| Log & Settings | ❔ | | opened, settings not changed |
+
+## Quests
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| Every quest map renders | ✅ | scripted | all 50 map IDs (Phases 7–8); ST17A's only quest does not start from Stage Select (shares ST17B/C's arena) |
+| Story quests (`q_e`) | ✅ | scripted | 3 of 98 started and played to the 2.5 s walk (first, middle, last): e0001, e0401, e1504 |
+| Avalon pacts (`q_a`) | ✅ | scripted | a0101, a0601, a1014 of 150 |
+| Grim pacts (`q_b`) | ✅ | scripted | b0101, b0308, b0514 of 70 (b0514's boss killed the idle player) |
+| Sanctuarium pacts (`q_s`) | ✅ | scripted | s0101, s0307, s0514 of 75 |
+| Additional pacts, add-ons (`q_l`) | ✅ | scripted | l0101, l1103 of 64; l1206 (ST17A) does not start from Stage Select. Reached from the menus with the add-ons unlocked: not checked |
+| `q_w` quests (Aquacity) | ✅ | scripted | w0101, w0701, w1204 of 48 |
+| Debt Pacts (`q_y`) | ✅ | scripted | y0101, y1001, y1801 of 18 |
+| Alice's Hollow (`q_h`) | ✅ | scripted | h0101, h0301, h0401 of 4 |
+| Town hunts (`q_o`) | ✅ | scripted | o0001, o0003, o0005 of 5 |
+| Other quest types: Phantom (`q_g`), AR (`ar000_00`), test (`testG`), TGS 2013 demo (`tgs2013`) | ✅ | scripted | 2–3 each started |
+| Mind's Eye | ✅ | scripted | Phase 7 |
+| Fights, Black Rites, sacrifice/save choices, quest clear | ❔ | | playtest |
+
+## Cutscenes, movies and audio
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| Book-page episodes | ✅ | scripted | Phase 7 |
+| Story scenes up to the final battle | ✅ | scripted | late save: sacrifice scene, Magusar's introduction (Phase 7) |
+| Endings after the final battle | ❔ | | needs the final battle won |
+| Credits (StaffRoll) | ✅ | scripted | |
+| Movies (FMV) | ✅ | scripted | new game: `ev01_opening.mp4` and `ev03_opening.mp4` play (AvPlayer, recompiled) |
+| Audio | ❔ | | |
+
+## Developer content
+
+| Area | Status | Checked by | Notes |
+|---|---|---|---|
+| Debug menu, Stage Select, test maps | ✅ | scripted | used by the sweeps; `LEVEL_TEST_00GA` renders |
+| `BookEnding` sequence | ⚠️ | scripted | black, on upstream Vita3K too (needs context the debug boot lacks) |

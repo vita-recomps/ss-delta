@@ -493,7 +493,9 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
 (3D at 1920×1088, 30 fps). Still needed: a playtest of the Black Rite
 binding and of a longer stretch on keyboard and controller.
 
-## Phase 9 — Compatibility pass (M) ☐
+## Phase 9 — Compatibility pass (M) ◐
+
+Matrix: [06-compatibility](06-compatibility.md).
 
 * ☐ A compatibility matrix like decimation's: story, all quest types, Avalon
   hub, sigils, Book (Librom) menus, FMV, audio, saves.

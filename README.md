@@ -41,6 +41,7 @@ finish loading. See the [plan](docs/03-plan.md).
 | [03-plan](docs/03-plan.md) | phases, exit criteria, risks |
 | [04-inventory](docs/04-inventory.md) | the code inventory: functions, jump tables, indirect branches, exceptions, frame pacing and render-target sites |
 | [05-recompiler](docs/05-recompiler.md) | the recompiler and its runtime in the fork: generated code, coverage, tests, build, `SSD_AOT` and differential mode |
+| [06-compatibility](docs/06-compatibility.md) | what works in each part of the game, and how it was checked |
 | [decisions](docs/decisions.md) | decision log |
 | [hashes](docs/hashes.md) | input hashes |
 
