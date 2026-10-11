@@ -441,7 +441,7 @@ final battle. No known rendering bugs remain. The ST17 ground shimmer is
 also there on a real Vita. Left for a playtest: the endings after
 defeating Magusar.
 
-## Phase 8 — PC features (M) ◐
+## Phase 8 — PC features (M) ☑
 
 Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
 [D13](decisions.md).
@@ -461,7 +461,7 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * Widescreen: the Vita's 960×544 is already 16:9 (to within 0.7%), so
     fullscreen on a 16:9 display has no bars to fill. Ultrawide would need
     the game's projection changed; not planned.
-* ◐ **Input.** Keyboard/gamepad remapping was done in Phase 6. Touch:
+* ☑ **Input.** Keyboard/gamepad remapping was done in Phase 6. Touch:
   * The game's text names one touch-only action, the Black Rite ("touch
     and hold the Black Rite icon"). `[touch]` bindings hold a finger at a
     point while a key or gamepad button is held. The default puts the
@@ -491,9 +491,9 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
     as the file Vita owners swap in; the new outfits appear.
 
 **Exit:** a full playthrough is possible on keyboard/controller at
-≥ 2× internal resolution. Status (2026-10-11): ≥ 2× is met on every map
-(3D at 1920×1088, 30 fps). Still needed: a playtest of the Black Rite
-binding and of a longer stretch on keyboard and controller.
+≥ 2× internal resolution. **Met** (2026-10-12): the owner played on a
+controller at scale 2: combat, the Black Rite on the left trigger, a
+sacrifice, a DLC quest cleared, audio. 60 fps stays deferred.
 
 ## Phase 9 — Compatibility pass (M) ◐
 
