@@ -1,0 +1,34 @@
+From 17ad57ba27cb885ed39fece679a94ce784c0f5bf Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 00:29:38 +0200
+Subject: [PATCH] SceCommonDialog: offline, the network check dialog ends as
+ cancelled
+
+sceNetCheckDialog reported a successful connection even with the offline
+setting on, so Soul Sacrifice Delta's Play Online waited at "Connecting..."
+for a server that never answered. Offline it now ends as the user backing
+out, as on a Vita without a connection; the game returns to its menu.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/modules/SceCommonDialog/SceCommonDialog.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp b/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
+index 4a4eedfd..51ffa764 100644
+--- a/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
++++ b/vita3k/modules/SceCommonDialog/SceCommonDialog.cpp
+@@ -601,7 +601,9 @@ EXPORT(int, sceNetCheckDialogInit, const SceNetCheckDialogParam *param) {
+         break;
+     default:
+         emuenv.common_dialog.status = SCE_COMMON_DIALOG_STATUS_FINISHED;
+-        emuenv.common_dialog.result = SCE_COMMON_DIALOG_RESULT_OK;
++        // offline there is no connection to make: the user backs out, as on a Vita without one
++        // (reporting success left games waiting for a server forever)
++        emuenv.common_dialog.result = emuenv.cfg.offline ? SCE_COMMON_DIALOG_RESULT_USER_CANCELED : SCE_COMMON_DIALOG_RESULT_OK;
+         break;
+     }
+ 
+-- 
+2.56.0.windows.2
+

@@ -264,7 +264,11 @@ numbers above:
     check zeroed. Our `system.bin` has all four lists empty. With the
     lists written, the outfit list shows Healer, Beast and Easterner as new
     (seen in `ss-delta.exe`, 2026-10-11). List capacities are taken as the
-    gaps to the next list (**hypothesis**).
+    gaps to the next list (**hypothesis**), except that the gap after the
+    `0x14` list also holds options: setting Options → Color Space to Wide
+    and saving changed only `+0x21c` (0 → 1) and the check [local,
+    2026-10-12]. The first list then has room for at most 260 ids (it holds
+    35); `unlock_addons` keeps to that (patch 0037).
 * **Touch** (the game's English text, `ingame_event_us.msgt`,
   `ingame_tutorial_us.msgt`, `letter_text_01_us.msgt`, `online_text_us.msgt`)
   [local, 2026-10-11]:

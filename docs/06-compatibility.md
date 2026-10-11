@@ -35,7 +35,7 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Mouse as the touchscreen | ✅ | user | title, name entry |
 | Black Rite on a key / trigger (`[touch]`) | ✅ | user | left trigger, in a fight (2026-10-12) |
 | F11 / Alt+Enter fullscreen, F12 screenshot | ✅ | scripted | screenshots at render resolution |
-| Offline: no network use | ✅ | scripted | Phase 6 |
+| Offline: no network use | ✅ | scripted | Phase 6; the network check dialog ends as cancelled offline (patch 0036) |
 
 ## Boot, saves and add-ons
 
@@ -56,8 +56,10 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Mad Chronicle (story chapter list, pages) | ✅ | scripted | late save: all chapters listed; a late chapter read (Phase 7) |
 | Portraiture: appearance, raiments, offerings | ✅ | scripted | |
 | Bazaar Ledger: Carnatux, Cassus (gifts) | ✅ | scripted | menus open; buying not checked |
-| Lore, Postscript | ❔ | | |
-| Log & Settings | ❔ | | opened, settings not changed |
+| Lore, Postscript | ✅ | scripted | 100% save: Lore's categories and entries, Postscript pages |
+| Blank Page (created pacts) | ✅ | scripted | pact pages render |
+| Log & Settings: Save, Options | ✅ | scripted | Color Space set to Wide, saved, kept after a restart (stored in `system.bin` +0x21c); all six option pages open |
+| Network: Play Online | ✅ | scripted | offline, Play Online returns to the menu (it waited at "Connecting..." forever before patch 0036) |
 
 ## Quests
 
