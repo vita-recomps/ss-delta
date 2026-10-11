@@ -960,33 +960,50 @@ render resolution before and after the walk.
   loading at 30 and gameplay at 60), then compare gameplay timings against
   30 fps.
 
-## ST03A water: a dark patch during the opening fly-through (2026-10-11, open)
+## ST03A water: a dark patch during the opening fly-through (2026-10-11, fixed)
 
 Seen by the user: early in ST03A's opening camera fly-through, a dark,
 straight-edged shape cuts through the water near the bottom of the screen.
 It is gone once the character spawns. The user saw something similar on
-another water map (not identified).
+another water map (not identified). **Not on a real Vita** (the user,
+2026-10-11).
 
 * **Reproduced.** Every rendered frame of the intro was recorded (the new
   `record:` step). Stage Select ST03A, frames from 7 s after the quest
-  starts: the patch shows for 5 frames (~170 ms, frames ~137–141), on the
-  shot that skims the water. Screenshots taken every second miss it,
-  which is why the earlier sweeps did not show it.
-* **What it is.** The whole water surface is one draw call (fragment
-  shader `34b195c9`, vertex `dbd8accb`, 7,566 indices, four textures:
-  albedo, light map, a multi map, an environment cube). Replacing the
-  shader's output with each input in turn shows a sharp quad edge in the
-  light-map coordinates, in `v_Color1` and above all in the
-  environment-map lookup (a vertex-computed reflection vector), which is
-  dark inside the patch. So one patch of the mesh gets different per-vertex
-  results; it is not a texture.
-* **Ruled out:** memory mapping (also with it disabled), the recompiled
-  code (also on the JIT), every other shader in the frame (skipped one at
-  a time), and float edge cases in the translated vertex shader (RCP, LOG
-  and RSQ made finite: no change).
-* **Open.** Whether the Vita shows it too (a hardware look at ST03A's
-  intro would settle it, as for ST17). Next steps if not: dump the water
-  draw's vertex streams and uniforms on a patch frame and a clean frame.
+  starts: the patch shows for 5–7 frames (~200 ms, frames ~135–141), on
+  the shot that skims the water. Screenshots taken every second miss it.
+* **Narrowing down.**
+  * The whole water surface is one draw (vertex shader `dbd8accb`,
+    fragment `34b195c9`, 7,566 indices, 1,617 vertices). Its indices and
+    vertex streams never change (all 544 draws of the quest dumped); only
+    the vertex uniforms (camera, time) do.
+  * Showing the environment-map lookup alone: whole water *triangles*
+    take one smooth, dark, detail-free value during those frames. Their
+    edges are the mesh's big triangles near the camera.
+  * Ruled out on the way: memory mapping, the recompiled code (also on
+    the JIT), the other shaders, the vertex ring buffer (wraps are not
+    tied to it), a stale cached maximum index, and float edge cases
+    (RCP/LOG/RSQ made finite).
+* **Cause.** Vita3K's translated vertex shaders write depth as
+  `max(z/w · scale + offset, 0) · w`, clamping depth below 0 per vertex.
+  The camera skims the water, so big water triangles cross the near
+  plane. For the vertices the clamp touches, `z` no longer varies linearly
+  with `w`, so the GPU's clipper cuts those triangles in the wrong place
+  and interpolates their attributes (reflection vector, colours) from the
+  wrong points. Removing the clamp removes the patch.
+* **Fix (fork patch 0032).** Depth below 0 is clamped per fragment by the
+  pipeline (Vulkan `depthClamp`, enabled when the GPU has it) and the
+  shader no longer clamps per vertex. Shader cache version 14 → 15, so
+  every install retranslates its shaders once. ST03A's intro: no patch,
+  the rest unchanged.
+* Depth clamp also turns off clipping at the far plane: geometry beyond
+  it is drawn at the far depth instead of being cut. A full sweep of all
+  50 map IDs after the fix (`build/maps-dclamp`) matches the Phase 8
+  sweep shot for shot (skies, fog, distance, Mind's Eye), at 28.6–29.7 fps
+  mean. Its lower one-second minimums (7–12 on three maps) were first-use
+  shader compiles: version 15 starts from an empty cache. Four deep
+  Stage Select entries were mis-navigated in that cold run; rerun warm,
+  they match too.
 * Side finding: a run with `memory-mapping` disabled leaves shaders in the
   cache translated for that mode (keyed by the GXP alone). With the normal
   mode they crash the AMD driver (`amdvlk64.dll`, `c0000409`) at quest

@@ -1,0 +1,110 @@
+From 9b28a2d9d108fbd55928e3d378037cb351876078 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Sun, 11 Oct 2026 17:46:12 +0200
+Subject: [PATCH] vulkan: clamp depth per fragment (depth clamp), not per
+ vertex in the shader
+
+Translated vertex shaders wrote depth as max(z/w * scale + offset, 0) * w.
+For a vertex the clamp touches, z no longer varies linearly with w, so
+triangles crossing the near plane are clipped in the wrong place and
+their attributes interpolated from the wrong points. In Soul Sacrifice
+Delta, ST03A's water showed whole triangles with a dark, flat reflection
+for a few frames while the camera skimmed it (not on hardware).
+
+When the GPU has depthClamp, it is enabled on every pipeline and the
+shader no longer clamps; depth below 0 is still clamped, per fragment.
+Shader cache version 14 -> 15 so cached shaders are retranslated.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/features/include/features/state.h        | 1 +
+ vita3k/renderer/src/vulkan/pipeline_cache.cpp   | 2 ++
+ vita3k/renderer/src/vulkan/renderer.cpp         | 5 +++++
+ vita3k/shader/include/shader/spirv_recompiler.h | 3 ++-
+ vita3k/shader/src/spirv_recompiler.cpp          | 8 ++++++--
+ 5 files changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/vita3k/features/include/features/state.h b/vita3k/features/include/features/state.h
+index 709f2d70..eb9b1419 100644
+--- a/vita3k/features/include/features/state.h
++++ b/vita3k/features/include/features/state.h
+@@ -30,6 +30,7 @@ struct FeatureState {
+     bool enable_memory_mapping = false; ///< Is the host GPU memory directly mapped with gxm memory?
+     bool support_scaled_attribute_formats = true; // can we pass integer to the shader and read them as floats? This is not supported on some Android GPUs
+     bool use_texture_viewport = false; ///< Are we using texture viewports in the shader
++    bool support_depth_clamp = false; ///< Is depth clamped per fragment by the pipeline (instead of per vertex in the shader)?
+ 
+     bool is_programmable_blending_supported() const {
+         return support_shader_interlock || support_texture_barrier || direct_fragcolor;
+diff --git a/vita3k/renderer/src/vulkan/pipeline_cache.cpp b/vita3k/renderer/src/vulkan/pipeline_cache.cpp
+index ec7584e4..c9289b81 100644
+--- a/vita3k/renderer/src/vulkan/pipeline_cache.cpp
++++ b/vita3k/renderer/src/vulkan/pipeline_cache.cpp
+@@ -846,6 +846,8 @@ vk::Pipeline PipelineCache::compile_pipeline(SceGxmPrimitiveType type, vk::Rende
+     const bool use_shader_interlock = state.features.support_shader_interlock && gxm_fragment_shader->is_frag_color_used();
+ 
+     const vk::PipelineRasterizationStateCreateInfo rasterizer{
++        // the PS Vita clamps depth below 0 instead of clipping (the shader recompiler leaves it to this)
++        .depthClampEnable = state.features.support_depth_clamp,
+         .polygonMode = translate_polygon_mode(record.front_polygon_mode),
+         .cullMode = translate_cull_mode(record.cull_mode),
+         // front face is always counter clockwise
+diff --git a/vita3k/renderer/src/vulkan/renderer.cpp b/vita3k/renderer/src/vulkan/renderer.cpp
+index 4d7673be..3c1fbe61 100644
+--- a/vita3k/renderer/src/vulkan/renderer.cpp
++++ b/vita3k/renderer/src/vulkan/renderer.cpp
+@@ -612,6 +612,7 @@ bool VKState::create(std::unique_ptr<renderer::State> &state, const Config &conf
+ 
+         // use these features (because they are used by the vita GPU) if they are available
+         vk::PhysicalDeviceFeatures enabled_features{
++            .depthClamp = physical_device_features.depthClamp,
+             .fillModeNonSolid = physical_device_features.fillModeNonSolid,
+             .wideLines = physical_device_features.wideLines,
+             .samplerAnisotropy = physical_device_features.samplerAnisotropy,
+@@ -965,6 +966,10 @@ void VKState::late_init(const Config &cfg, const std::string_view game_id, MemSt
+ 
+     features.enable_memory_mapping = mapping_method != MappingMethod::Disabled;
+ 
++    // depth below 0 is clamped per fragment by the pipeline rather than per vertex in the shader
++    features.support_depth_clamp = static_cast<bool>(physical_device_features.depthClamp);
++    LOG_INFO_IF(!features.support_depth_clamp, "The GPU has no depth clamp: depth is clamped per vertex (triangles crossing the near plane can show wrong colours)");
++
+ #ifdef __ANDROID__
+     if (mapping_method == MappingMethod::NativeBuffer) {
+         // dynamically load the symbols
+diff --git a/vita3k/shader/include/shader/spirv_recompiler.h b/vita3k/shader/include/shader/spirv_recompiler.h
+index 58db58f0..0d757754 100644
+--- a/vita3k/shader/include/shader/spirv_recompiler.h
++++ b/vita3k/shader/include/shader/spirv_recompiler.h
+@@ -31,7 +31,8 @@ namespace shader {
+ static constexpr int COLOR_ATTACHMENT_TEXTURE_SLOT_IMAGE = 0;
+ static constexpr int MASK_TEXTURE_SLOT_IMAGE = 1;
+ static constexpr int COLOR_ATTACHMENT_RAW_TEXTURE_SLOT_IMAGE = 3;
+-static constexpr uint32_t CURRENT_VERSION = 14;
++// 15 (ss-delta): depth clamped by the pipeline when supported, not in the vertex shader
++static constexpr uint32_t CURRENT_VERSION = 15;
+ // fragment shader using the rendering surface as a storage image (because of shader interlock) have a line
+ // layout (constant_id = GAMMA_CORRECTION_SPECIALIZATIO_ID) const bool is_srgb = false;
+ // Setting this constant to true performs gamma correction in the shader
+diff --git a/vita3k/shader/src/spirv_recompiler.cpp b/vita3k/shader/src/spirv_recompiler.cpp
+index f0e1773d..4c196570 100644
+--- a/vita3k/shader/src/spirv_recompiler.cpp
++++ b/vita3k/shader/src/spirv_recompiler.cpp
+@@ -1743,8 +1743,12 @@ static spv::Function *make_vert_finalize_function(spv::Builder &b, const SpirvSh
+                     z = b.createBinOp(spv::OpFMul, f32, z, z_scale);
+                     z = b.createBinOp(spv::OpFAdd, f32, z, z_offset);
+ 
+-                    // z values below 0 get clamped
+-                    z = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { z, zero });
++                    // z values below 0 get clamped. With depth clamp in the pipeline the clamp is done per
++                    // fragment; clamping the vertex here instead breaks clipping for triangles crossing the
++                    // near plane (their z no longer varies linearly), which shifts their clipped vertices
++                    // and garbles their attributes (ss-delta: ST03A's water while the camera skims it)
++                    if (!features.support_depth_clamp)
++                        z = b.createBuiltinCall(f32, utils.std_builtins, GLSLstd450FMax, { z, zero });
+ 
+                     if (!translation_state.is_vulkan) {
+                         // convert [0,1] depth range (gxp, vulkan) to [-1,1] depth range (opengl)
+-- 
+2.56.0.windows.2
+

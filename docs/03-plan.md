@@ -429,6 +429,10 @@ Results: [02-baseline](02-baseline.md#phase-7-map-sweep-2026-10-11).
     battle (a playtest).
 * ☑ Bloom drawn frames late (ghost book, title butterfly): fixed by fork
   patch 0019, confirmed by the user.
+* ☑ ST03A water: a dark patch over the water during the opening
+  fly-through (seen by the user, not on a Vita). Per-vertex depth clamp
+  in translated shaders broke near-plane clipping; fixed by fork patch
+  0032 (depth clamp in the pipeline), checked with a full map sweep.
 
 **Exit:** a visual sweep of all maps and cutscenes with no known rendering
 bugs. **Met** (2026-10-11): 48 of 50 map IDs (ST17A is unreachable from
