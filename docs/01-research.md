@@ -300,8 +300,10 @@ numbers above:
   | 2 | 640×368 |
   | 3 | 480×272 |
 
-  * Every buffer derived from it follows. `ResoDown 0` renders correctly
-    (Phase 8), and is sharper.
+  * Every buffer derived from it follows, but four vertex shaders keep
+    the 720×408 mode's depth UV scale (720/736, 408/416) in their literal
+    tables, so `ResoDown 0` needs them set to 1.0 (02-baseline, "Haze
+    over near objects"). With that it renders correctly and is sharper.
   * Patching only the mode-1 immediates (as VitaGrafix does) breaks
     rendering in Vita3K: `sceGxmColorSurfaceInit` and
     `sceGxmTextureInitLinear` reject their arguments, and the game aborts.

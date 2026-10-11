@@ -1009,3 +1009,32 @@ another water map (not identified). **Not on a real Vita** (the user,
   mode they crash the AMD driver (`amdvlk64.dll`, `c0000409`) at quest
   load, on every later run, until the cache is cleared. Players can't hit
   this: `ss-delta.exe` fixes the mode.
+
+## Haze over near objects at 960×544 (2026-10-11, fixed)
+
+Seen by the user in the hub (the Librom view): a bluish, blurred band over
+the bones in the upper right. It came with `full_3d` (Phase 8), not with
+the depth clamp: with `full_3d = false` the bones are sharp.
+
+* Per-pass dumps of one frame in both modes: the scene pass is the same;
+  the depth-of-field composite (fragment `67d7b18a`, vertex `113bf15f`)
+  is where the bones turn into the blurred copy. Its uniforms are the
+  same in both modes (dumped).
+* The composite reads depth at `v_TexCoord1`, and the vertex shader
+  computes that as the screen UV × (0.978261, 0.980769), 720/736 and
+  408/416, from its literal table. Right for the 720×408 mode, whose depth
+  texture is padded to whole 32-pixel tiles (1472×832 samples for
+  1440×816); at 960×544 the texture (1920×1088) has no padding, so depth
+  was read up to 2% short of the right and bottom edges. Near objects got
+  the background's depth, hence its blur and haze.
+* Four vertex shaders seen carry the pair (`113bf15f`, `3951bb3a`,
+  `93f3cfcd`, `bdf52db5`), stored as consecutive literal-table entries
+  (`{u32 register, f32 value}`). The eboot's data constants at
+  `0x81CC6C50`/`58` (VitaGrafix's sites) are not what these shaders use.
+* **Fix (fork patch 0033):** `ss-delta.exe` with `full_3d` sets both
+  values to 1.0 in each shader as the game registers it (a GXM hook,
+  `on_program_registered`). The hub's bones look as at 720×408, sharper.
+* Ruled out on the way: the depth-as-texture path (sampling in place vs
+  copying), the eboot's UV-scale constants, the composite's uniforms.
+* Full map sweep after the fix (`build/maps-uvfix`): all 50 map IDs
+  consistent with the previous sweep, 29.3–29.8 fps mean.

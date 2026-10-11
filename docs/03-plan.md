@@ -451,6 +451,10 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
     renders the 3D at 960×544, the framebuffer's size. `ss-delta.ini`
     `full_3d` (default on) serves it through a `boot_config.ini` copy
     (fork patch 0029). The installed file is unchanged.
+  * The game's 960×544 mode is not fully consistent: its depth-of-field
+    shaders keep the 720×408 mode's depth UV scale. Fixed in the shaders
+    as the game registers them (fork patch 0033); found by the user as
+    haze over the hub's bones.
   * Vita3K's `scale` multiplies that: at 2 the 3D is 1920×1088. All 50
     map IDs swept at `full_3d` + scale 2: correct, 29.5–29.7 fps on the
     Radeon 760M.
