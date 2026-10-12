@@ -215,6 +215,29 @@ numbers above:
       plays the credits.
     * `BookEnding` stays black, on upstream Vita3K too.
     * The debug menus confirm with **circle**, not cross.
+    * `StaffRoll` → "clear" also plays the full credits, then stays black
+      [local, 2026-10-12].
+    * `CutEvent Select` is an event viewer: the tutorials, `QuestLast00/01`
+      and the prison events (`PrisonOpen00/01`, `PrisonEnd00` "dummy data",
+      `PrisonEnd01` "ED: the sorcerer transforms → escapes the prison").
+      R adds the entry to a list, circle starts it. Without a loaded save
+      `PrisonEnd01` shows "Now Loading..." and falls back to the title
+      [local, 2026-10-12].
+* **Characters and the final battle** [local, 2026-10-12]:
+  * `boot/chara_param.csv` (Shift-JIS): `No., description, HP, attack,
+    defence, ...` for the player (`!pc001`), NPCs and every enemy and boss
+    (`eb###`, `ez###`) with rank variants (`_r01` ...).
+    `boot/chara_id_table.csv` maps the `ch####_##` ids that
+    `quest_param.csv` uses (`BOSS_ID1/2`) to models and these rows.
+  * Magusar is `マーリン` (Merlin) in the data: `ch5002` Old Merlin (`eb500`)
+    and `ch6002` his dragon form (`eb600`), the bosses of `q_e0251` (ST17B);
+    Delta's final battle `q_e0252` (`EndingDelta`) is `ch8402` Super Merlin
+    (`eb840`) and `ch8602` the last boss (`eb860`).
+  * A loose `resource/boot/chara_param.csv` with `PackFileFirst false`
+    (through `[boot_config]`) is opened instead of the archive's, but
+    setting those bosses' HP to 1 and attack to 0.01 did not visibly change
+    the final battle (the player still lost). Fight values probably come
+    from elsewhere as well (rank tables, skill data; **hypothesis**).
 * **Saves:** `ux0:user/00/savedata/PCSA00152/` holds `datag0001.bin` (979,168
   bytes) and `system.bin` (1,556 bytes), each with a `.bak` copy. In
   Vita3K they are plaintext; a decrypted save from another console (Apollo's

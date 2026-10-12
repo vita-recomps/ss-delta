@@ -495,12 +495,14 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
 controller at scale 2: combat, the Black Rite on the left trigger, a
 sacrifice, a DLC quest cleared, audio. 60 fps stays deferred.
 
-## Phase 9 — Compatibility pass (M) ◐
+## Phase 9 — Compatibility pass (M) ☑
 
 Matrix: [06-compatibility](06-compatibility.md).
 
-* ☐ A compatibility matrix like decimation's: story, all quest types, Avalon
-  hub, sigils, Book (Librom) menus, FMV, audio, saves.
+* ☑ A compatibility matrix like decimation's: story, all quest types, Avalon
+  hub, sigils, Book (Librom) menus, FMV, audio, saves (2026-10-12). Two
+  non-blocking ⚠️: the endings after the final battle (not reached; their
+  movies and event mechanism checked) and the debug-only `BookEnding`.
 * ☑ Comparisons against Vita3K for timing-sensitive systems (Havok physics,
   AI): an idle boss fight, five runs native and five on the JIT, ends the
   same within the emulator's own run-to-run spread

@@ -54,8 +54,9 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 |---|---|---|---|
 | Hub (the prison), Librom view | ✅ | scripted, user | |
 | Mad Chronicle (story chapter list, pages) | ✅ | scripted | late save: all chapters listed; a late chapter read (Phase 7) |
-| Portraiture: appearance, raiments, offerings | ✅ | scripted | |
-| Bazaar Ledger: Carnatux, Cassus (gifts) | ✅ | scripted | menus open; buying not checked |
+| Portraiture: appearance, raiments, offerings | ✅ | scripted | Select Offerings (37 pages); Fuse Offerings: a fusion done, the counts change |
+| Right Arm: sigils | ✅ | scripted | Carve Sigil: a sigil carved, the arm's boosts change; Rewrite Lv, Essences, Rite of Transmutation open |
+| Bazaar Ledger: Carnatux, Cassus (gifts) | ✅ | scripted | a raiment traded at Carnatux ("New raiment acquired", the offering count drops); Cassus's gifts (Phase 8) |
 | Lore, Postscript | ✅ | scripted | 100% save: Lore's categories and entries, Postscript pages |
 | Blank Page (created pacts) | ✅ | scripted | pact pages render |
 | Log & Settings: Save, Options | ✅ | scripted | Color Space set to Wide, saved, kept after a restart (stored in `system.bin` +0x21c); all six option pages open |
@@ -78,6 +79,7 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Other quest types: Phantom (`q_g`), AR (`ar000_00`), test (`testG`), TGS 2013 demo (`tgs2013`) | ✅ | scripted | 2–3 each started |
 | Mind's Eye | ✅ | scripted | Phase 7 |
 | Fights, Black Rites, sacrifice/save choices, quest clear | ✅ | user | combat, a sacrifice, a DLC quest cleared (2026-10-12) |
+| AI allies | ✅ | user | in a co-op DLC quest (2026-10-12) |
 | Physics and monster AI timing, native against JIT | ✅ | compared | b0514 idle, 5 runs each: same load time, player down after 24.0 s native and 23.1 s JIT (spread ±5 s in both), same sequence of events ([02-baseline](02-baseline.md#native-against-jit-an-idle-fight-timed-2026-10-12)) |
 
 ## Cutscenes, movies and audio
@@ -85,9 +87,9 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Area | Status | Checked by | Notes |
 |---|---|---|---|
 | Book-page episodes | ✅ | scripted | Phase 7 |
-| Story scenes up to the final battle | ✅ | scripted | late save: sacrifice scene, Magusar's introduction (Phase 7) |
-| Endings after the final battle | ⚠️ | scripted | not reached (the final battle was not won). Their content checked as far as possible: the ending events (`prison_ending_*`) play movies with subtitles, as the opening does; all 13 movies decode without errors in FFmpeg and share one format (H.264 High 960×544, AAC) with the two openings that play in-game |
-| Credits (StaffRoll) | ✅ | scripted | |
+| Story scenes up to the final battle | ✅ | scripted | late save: sacrifice scene, Magusar's introduction (Phase 7). 100% save, Fight Magusar: Librom's dialogue, the Save/Sacrifice prompt (hold R), Librom's sacrifice scene, the final battle's opening scene and the fight; losing it gives "This is not the end..." and the save prompt |
+| Endings after the final battle | ⚠️ | scripted | not reached: the final battle was not won, by the user or by script (a weakened boss through a loose `chara_param.csv` did not change the fight), and the debug cutscene viewer's `PrisonEnd01` needs the story context (back to the title, as `BookEnding`). Their content checked as far as possible: the ending events (`prison_ending_*`) play movies with subtitles, as the opening does; all 13 movies decode without errors in FFmpeg and share one format (H.264 High 960×544, AAC) with the two openings that play in-game |
+| Credits (StaffRoll) | ✅ | scripted | the debug `StaffRoll` with "clear": the full credits to the closing copyright card |
 | Movies (FMV) | ✅ | scripted | new game: `ev01_opening.mp4` and `ev03_opening.mp4` play (AvPlayer, recompiled) |
 | Audio | ✅ | user | 2026-10-12 |
 
