@@ -509,3 +509,48 @@ no third-party save is shipped or needed.
 
 * The change is in the save, so it carries over to a Vita (same format).
 * Turning `dlc` off later does not remove them; restoring the backup does.
+
+## D15 — Ad hoc play uses Vita3K's ad hoc support; copies on one PC take 127.0.0.N (accepted, 2026-10-12)
+
+**Context:**
+
+* The owner asked for multiplayer (plan Phase 10). The game's Ad Hoc Play
+  runs on SceNetCtl's ad hoc mode and the firmware's matching module,
+  which Vita3K supports since late 2025: the module runs as LLE over P2P
+  sockets, which Vita3K maps to UDP port 3658 + virtual port, and peers
+  are found by a broadcast every second.
+* Decimation (D11 there) had to write its ad hoc layer and server; here
+  nothing of the kind is missing.
+* Two copies on one PC collide: both bind the same ports, and loopback has
+  no broadcast. They also share a save, a config and the shader cache.
+
+**Decision:**
+
+* Keep Vita3K's ad hoc support (LLE matching module, P2P over UDP).
+* `ss-delta.exe --player N` is copy N (2-4): Vita user N-1, saves copied
+  from player 1's once, its own config and log, the shader cache read
+  only.
+* `[multiplayer] network = local` (default) gives copy N the address
+  127.0.0.N: P2P sockets bound to any address bind it, and a broadcast
+  goes to each 127.0.0.1-4 but its own. `lan` is Vita3K's way, for PCs in
+  one network.
+* The matching module, loaded only when Ad Hoc Play opens, is recompiled
+  for a fixed base (`0x80757000`, where Vita3K's allocator puts it), and
+  the loader places a module with native code at its base when free (D8's
+  guard, the code hash, still applies).
+
+**Rejected:**
+
+* An ad hoc server (PPSSPP's protocol, as in decimation): the Vita's ad
+  hoc needs none, and Vita3K builds on IP addresses directly.
+* A full copy of the Vita file system per player: gigabytes, and the users
+  already separate the saves.
+
+**Consequences:**
+
+* Play with real Vitas (XLink Kai) is not covered; it needs Vita3K's
+  traffic bridged to a Vita's ad hoc frames.
+* Players on one PC are four at most, the game's room size.
+* If the allocator ever puts the matching module elsewhere, the log says
+  the base "is taken" and the build without the JIT stops at its first
+  call; the JIT build runs it as guest code.

@@ -214,11 +214,11 @@ way, from ELFs `ss-delta.exe` writes as it loads them (`SSD_DUMP_ELFS=1`).
 Those are decrypted and relocated to the load address already, so they need
 no `--load-base`.
 
-| | sysmodule | libSceFt2 | libpvf | libscemp4 | libsceavplayer |
-|---|---|---|---|---|---|
-| functions recompiled | 19 | 772 | 101 | 274 | 305 |
-| left to the JIT | 0 | 0 | 0 | 0 | 0 |
-| dynarmic tests | 351 | 3,537 | 1,468 | 1,385 | 895 |
+| | sysmodule | libSceFt2 | libpvf | libscemp4 | libsceavplayer | adhoc_matching |
+|---|---|---|---|---|---|---|
+| functions recompiled | 19 | 772 | 101 | 274 | 305 | 81 |
+| left to the JIT | 0 | 0 | 0 | 0 | 0 | 0 |
+| dynarmic tests | 351 | 3,537 | 1,468 | 1,385 | 895 | 459 |
 
 * The translator gained three forms for them: 4-instruction `IT` blocks
   (the inventory and the translator stopped at three), `mcr` to TPIDRURO
@@ -236,6 +236,12 @@ no `--load-base`.
   size, so the 8/16-bit lane moves get their own tests.
 * With them, and NativeCPU, the JIT runs nothing in title, menu, field and
   quest runs.
+* `adhoc_matching` (Phase 10, [D15](decisions.md)) loads only when Ad Hoc
+  Play opens. It is generated for `--load-base 80757000`, the address it
+  takes in play, from a dump taken anywhere (the code hash and code are the
+  same; relocated words are read from guest memory). The fork's loader
+  (`aot_preferred_base`) puts a relocatable module with native code at the
+  page of its first function when that memory is free.
 
 ### NEON
 

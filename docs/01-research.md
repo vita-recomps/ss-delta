@@ -346,6 +346,56 @@ numbers above:
 * **30 fps** (`FPS 30` in `boot_config.ini`). No 60 fps patch exists anywhere.
   Game logic is presumably frame-locked (**hypothesis**).
 
+### Ad hoc play
+
+[local, 2026-10-12; plan Phase 10]
+
+* **Menu.** Librom → Network → Ad Hoc Play ("Relive quests w/local
+  players"): Create Room (a difficulty cap, then the room) or Search for
+  Room. The host's room has four player slots, Select Quest, Arm yourself,
+  chat and Ready.
+* **Imports** (eboot):
+  * SceNetCtl's ad hoc calls (state, address, callbacks, disconnect);
+  * SceNetAdhocMatching (10: Init, Create, Start, SetHelloOpt,
+    SelectTarget, CancelTarget, Stop, Delete, Term);
+  * ScePspnetAdhoc (10: PDP create/send/recv/delete, socket alert,
+    adhocctl init and ether address);
+  * SceLibRudp (19: a reliable stream over a P2P socket);
+  * SceNet sockets (socket, bind, listen, accept, send, recv).
+* **Vita3K's support** (upstream since late 2025):
+  * Entering Ad Hoc Play opens the network check dialog in ad hoc mode.
+    That starts NetCtl's peer thread: every second it sends a peer record
+    to the adapter's broadcast address on UDP 3658, and it keeps the peers
+    it hears from (5 s timeout).
+  * A P2P socket on virtual port v is a host UDP (or TCP) socket on port
+    3658 + v. Peers are known by their IPv4 address.
+  * Matching and Rudp are the firmware's own modules (`adhoc_matching.suprx`,
+    `librudp.suprx`), run as LLE; ScePspnetAdhoc is an HLE stub.
+* **Seen on one copy** (JIT, slot 2):
+  * `adhoc_matching.suprx` loads when Ad Hoc Play opens (code at
+    `0x80757000`, 0x3e48 bytes).
+  * It imports SceNetInternal `0x689B9D7D`, which Vita3K lacked. Its two
+    call sites pass a pointer to one word and use the result modulo a range
+    as a nonzero value. **Hypothesis:** a random number (fork patch 0038
+    gives one).
+  * Create Room works without a peer.
+* **Seen on two copies** (`--player`, local mode, JIT then NativeCPU):
+  * The host's room appears in the other copy's Search for Room as
+    "<name> [1/4]"; joining, Ready ("Finish preparations though you still
+    bear the price?" for a sorcerer with a Black Rite price) and Start
+    Quest work.
+  * In the quest both copies show the same enemies, kills and "targets
+    remaining", and the same results page; the "Return To Lobby In" count
+    runs on both. A copy still on the save prompt or "Save complete" when
+    it reaches 0 shows "You left the room" (and the host "Connection with
+    <name> lost"). **Hypothesis:** this is the game's design, not a
+    network failure; answering at once returned both to the room.
+  * Only `adhoc_matching.suprx` loads; `librudp.suprx` and pspnet_adhoc's
+    PDP are not used up to and through a quest (**hypothesis:** they serve
+    Play Online).
+  * The matching module loaded at `0x80757000` in every play session, and at
+    `0x80755000` when `--dump-elfs` loads it at the title.
+
 ## Prior work on this game
 
 ### loktar00/soul-sacrifice-preservation (most relevant)

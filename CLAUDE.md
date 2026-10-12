@@ -71,7 +71,12 @@ conventions.
   `python -I recomp/recompile.py extracted/elf/firmware/<name>.elf generated/fw_<name>`
   (no `--load-base`: the dumps are relocated) and add `fw_<name>` to
   `RECOMP_MODULES` in `build/recomp`. `ss-delta.exe` runs on NativeCPU (no
-  JIT) by default.
+  JIT) by default. `adhoc_matching` loads only in Ad Hoc Play (`--dump-elfs`
+  loads it at the end): generate it with `--load-base 80757000` (D15).
+- Ad Hoc Play tests: `ss-delta.exe --player N` (2-4) is another copy with
+  Vita user N-1 (a copy of user 00's saves), `ss-delta/player<N>/` and the
+  address 127.0.0.N; `v3kdrive.py ... --player N` drives it. Test as players
+  2 and 3, so user 00 (the owner's saves) is never written.
 - Game archives: `python -I tools/lspk.py list|extract <.../retail/archive> ...`
   (`archive_patch3` overrides `archive`). `tools/questmaps.py` turns
   `quest_param.csv` into the map list `tools/map-sweep.ps1` sweeps through

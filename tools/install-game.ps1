@@ -61,7 +61,11 @@ $modules = [ordered]@{
     eboot = 'eboot'; libc = 'libc'; libfios2 = 'libfios2'; libult = 'libult'
     sysmodule = 'fw_sysmodule'; libSceFt2 = 'fw_libSceFt2'; libpvf = 'fw_libpvf'
     libscemp4 = 'fw_libscemp4'; libsceavplayer = 'fw_libsceavplayer'
+    adhoc_matching = 'fw_adhoc_matching'
 }
+# modules loaded late in a session (Ad Hoc Play's matching module, written at the end of the dump)
+# are recompiled for the address they take in play; the fork places them there (cpu/aot.h)
+$bases = @{ adhoc_matching = '80757000' }
 $elf = Join-Path $work 'elf'
 New-Item -ItemType Directory -Force $elf | Out-Null
 foreach ($m in $modules.Keys) {
@@ -74,7 +78,8 @@ foreach ($m in $modules.Keys) {
 $gen = Join-Path $work 'generated'
 foreach ($m in $modules.Keys) {
     "recompiling $m"
-    python -I (Join-Path $root 'recomp\recompile.py') (Join-Path $elf "$m.elf") (Join-Path $gen $modules[$m]) | Select-String 'recompiled|code hash'
+    $base = if ($bases.Contains($m)) { @('--load-base', $bases[$m]) } else { @() }
+    python -I (Join-Path $root 'recomp\recompile.py') (Join-Path $elf "$m.elf") (Join-Path $gen $modules[$m]) @base | Select-String 'recompiled|code hash'
     if ($LASTEXITCODE) { throw "recompiling $m failed" }
 }
 $build = Join-Path $work 'build'

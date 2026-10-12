@@ -524,11 +524,50 @@ Matrix: [06-compatibility](06-compatibility.md).
 
 **Exit:** the matrix has no blocking entries.
 
+## Phase 10 — Ad hoc multiplayer (L) ◐
+
+The owner asked for it on 2026-10-12, after Phase 9. Ad Hoc Play (Librom →
+Network → Ad Hoc Play) between copies of the port. Unlike decimation's
+Phase 9, Vita3K already speaks ad hoc ([research](01-research.md#ad-hoc-play)):
+the firmware's own matching module runs on the emulated Vita, over P2P
+sockets that Vita3K maps to UDP.
+
+* ☑ **10a Survey, one copy** (2026-10-12): Create Room reaches the host
+  lobby (four slots, quest, Ready) on the JIT. The game loads
+  `adhoc_matching.suprx` as LLE when it enters Ad Hoc Play; one import of
+  it was missing (SceNetInternal `0x689B9D7D`).
+* ☑ **10b Copies on one PC** (fork patch 0038, `ss-delta.exe --player N`,
+  [D15](decisions.md)):
+  * player N is Vita user N-1 (its saves copied from player 1's on its first
+    start), with its config and log in `ss-delta/player<N>/`, and reads the
+    shader cache without writing it (checked: 717 files, none touched);
+  * `[multiplayer] network = local`: copy N has the address 127.0.0.N, ad hoc
+    sockets bind it, and a broadcast goes to each other copy; `lan` is
+    Vita3K's way (an adapter and its broadcast);
+  * `[multiplayer] gamepad = n`: only the nth gamepad, also in the background
+    (not checked: no gamepad on the test machine);
+  * `tools/v3kdrive.py --player N` drives copy N.
+* ☑ **10c Two copies in one room** (2026-10-12): Search for Room finds the
+  host, the client joins, a quest starts, runs in step and ends for both
+  ([06-compatibility](06-compatibility.md)). On the JIT first, then on
+  NativeCPU. Not played to a win (the test save's Black Rite price kills
+  both sorcerers).
+* ☑ **10d Native code** for `adhoc_matching.suprx`, the only module ad hoc
+  loads (Rudp and ScePspnetAdhoc are not used in Ad Hoc Play): 81 functions,
+  0 failing in 454 + 5 dynarmic tests. It loads only when Ad Hoc Play opens,
+  so the loader puts it where its code was generated for (`0x80757000`,
+  where it lands anyway), and `--dump-elfs` loads it so that
+  `install-game.ps1` gets its ELF.
+* ◐ **10e Package**: `run-player2.bat` and the README's Ad Hoc Play section
+  in `make-dist.ps1`; the owner's folder is updated. A check by the owner
+  (a quest won together, a gamepad per copy, LAN between two PCs) is open.
+
+**Exit:** two copies play a quest together in Ad Hoc Play, from a package
+built without the JIT.
+
 ## Later (deferred)
 
-* Ad hoc multiplayer between two copies of the port. It is the same shape as
-  decimation's Phase 9: `SceNetAdhocMatching` / PDP over UDP. XLink Kai
-  compatibility would allow play with real Vitas.
+* XLink Kai compatibility (play with real Vitas over the internet).
 * Modding hooks: C++ function overrides, plus loose files (the engine
   already prefers loose files when `PackFileFirst false`).
 * Other platforms (Linux, Steam Deck).
