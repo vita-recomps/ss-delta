@@ -68,15 +68,20 @@ first.
   can't fetch in place. The cloak is now correct on AMD, which Plus doesn't
   manage, and the validation layer reports no misalignment.
 * ☐ Retest our fork on the RTX 4090. Does patch 0003 also fix the white
-  Walhalla floor there?
-* ◐ Vita3K-Plus.
+  Walhalla floor there? **Deferred** by the owner with the NVIDIA floor
+  (2026-10-12).
+* ☑ Vita3K-Plus.
   * ☑ The v1.2 binary boots on Vulkan here and fixes the black blocks and
     white floors ([02-baseline](02-baseline.md#vita3k-plus-v12-2026-10-09)).
   * ☑ Base our fork on upstream, not Plus ([D5](decisions.md)). Plus is
     upstream plus 167 commits (+18k lines), mostly other games' fixes.
-  * ☐ Port its two fixes for this game (`98a65bff` depth, `d248beee` MSAA
-    outlines). Neither applies cleanly on upstream; both build on earlier
-    Plus surface-cache changes.
+  * ☑ Its two fixes for this game (`98a65bff` depth, `d248beee` MSAA
+    outlines): not ported, nothing left for them to fix. Neither applies
+    cleanly on upstream (both build on earlier Plus surface-cache changes);
+    our own patches serve the depth reads (0006 MSAA depth, 0032 depth
+    clamp, 0033 depth UV scale), Mind's Eye is correct without `d248beee`
+    (Phase 7) and all 50 map IDs render at 960×544 and 1920×1088 (Phase 8)
+    (2026-10-12).
   * ☑ Find which Plus change avoids the AMD Vulkan crash: `105331d9`
     (f16 saturation, patch 0002), plus `35cbde8d`'s stride repacking
     (patch 0003) for correct geometry.
@@ -90,8 +95,9 @@ first.
   * This is the leading hypothesis for the vendor-dependent artifacts.
   * ☑ Tie the warnings to shader hashes. The two read so far are benign
     partial-`vec4` copies ([02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
-  * ☐ Zero-initialise every register array in our build's translator, and
-    compare the Walhalla floor on the RTX 4090.
+  * ☑ Zero-initialise every register array in our build's translator: done
+    on AMD with no effect (below). The RTX 4090 comparison waits with the
+    NVIDIA floor (on hold).
   * A fix here would be upstreamable, and every Vita3K user of this game
     would benefit.
 * ☑ Real input for automated runs.
@@ -127,7 +133,7 @@ Carried over (not blocking Phase 2):
   concern depth and MSAA reads at higher resolutions, so they move to
   Phase 7/8 unless the 4090 retest shows a need.
 
-## Phase 2 — Static analysis and inventory (M) ◐
+## Phase 2 — Static analysis and inventory (M) ☑
 
 Results: [04-inventory](04-inventory.md).
 
@@ -142,7 +148,8 @@ Results: [04-inventory](04-inventory.md).
   Recursive descent with IT blocks, literal pools, `tbb`/`tbh` tables,
   constants propagated for `movw/movt` far calls, no-return calls, and
   EHABI landing pads.
-* ◐ Ghidra 12.1.3 + VitaLoaderRedux project built headless.
+* ☑ Ghidra 12.1.3 + VitaLoaderRedux project built headless: dropped
+  (2026-10-12), not needed.
   * A VitaLoaderRedux 1.09 release for 12.1.3 exists.
   * Not installed yet: it is a compiled plugin, so it has to be read and
     built from source first, or the owner has to OK the release binary.
@@ -155,12 +162,12 @@ Results: [04-inventory](04-inventory.md).
   * no mode switches through pointers;
   * the 703 ARM-mode exidx entries are 674 import stubs, 28 NEON routines
     and the end marker.
-* ◐ Frame-step logic and render-target sites:
+* ☑ Frame-step logic and render-target sites:
   * ☑ located: the display callback `0x81828708`, the `FPS` parser
     `0x817e7c74`, the main render target `0x81828272` plus 9 more
     render-target creators;
-  * ☐ following the `FPS` value into the main loop is left for the
-    Phase 8 60 fps study.
+  * following the `FPS` value into the main loop moves with the 60 fps
+    study (deferred, Phase 8).
 
 **Exit:** met for the eboot, libfios2 and libult (2026-10-10). 100% of
 exidx entries are classified; every indirect branch is resolved or listed as
@@ -194,7 +201,7 @@ numbers: [05-recompiler](05-recompiler.md).
     (1.7 M in the eboot).
   * Memory is accessed as `base + (uint32_t)addr`, matching Vita3K's
     4 GiB reservation.
-* ◐ **Control flow:**
+* ☑ **Control flow:**
   * ☑ `bl`/`blx #imm` become direct calls, checked against the return
     protocol;
   * ☑ a call to an import stub becomes `call_import` (the HLE thunk);
@@ -202,8 +209,8 @@ numbers: [05-recompiler](05-recompiler.md).
   * ☑ `IT` becomes `if`;
   * ☑ `blx reg` goes through `call_indirect`, and a return to an unexpected
     address goes through `escape`. Phase 4 implements both hooks;
-  * ☐ `ldrex`/`strex` become host CAS. They have single-thread semantics in
-    v0; the CAS moves to Phase 4, with the threads.
+  * ☑ `ldrex`/`strex` become host CAS: done in Phase 4, with the threads
+    (single-thread semantics in v0).
 * ☑ Functions containing NEON or ARM-mode code are left to dynarmic in v0:
   5,577 NEON and 28 ARM-mode functions in the eboot.
 * ☑ **Per-instruction test suite** (`recomp/run-tests.ps1`). Random inputs,
@@ -346,7 +353,7 @@ and ult, and a clean differential log. **Met** (2026-10-10).
 * ☑ **libult**: the recompiled libult runs on the SceFiber HLE, with
   escapes and resume points at fiber switches ([D9](decisions.md)). Host
   fibers were tried and dropped.
-* ◐ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
+* ☑ **Stubs.** All NP/Net/Http/Ssl/Adhoc/Sns/Smart/Camera/Near imports
   return clean "offline" results. No `sceNpAuthInit` dialogs.
   * ☑ Offline mode (fork patch 0023, on in `ss-delta.exe`): NetCtl reports
     disconnected, HTTP/HTTPS/SSL use the HLE modules with no network, and
@@ -354,20 +361,26 @@ and ult, and a clean differential log. **Met** (2026-10-10).
     longer run on the JIT. No dialogs at boot. The title's DOWNLOAD entry
     shows an empty screen and waits, exactly as in Vita3K without offline
     mode.
-  * ☐ NP (PSN), ad hoc, Near, Smart and Camera are Vita3K's HLE stubs.
-    Their offline answers are not checked yet; the game hasn't been seen
-    using them outside the online menus.
-* ◐ **Firmware LLE modules** ([D11](decisions.md)).
+  * ☑ NP (PSN), ad hoc, Near, Smart and Camera are Vita3K's HLE stubs.
+    Checked offline (2026-10-12): Play Online ends as cancelled and returns
+    to the menu (fork patch 0036; it hung at "Connecting..." before); the
+    AR quests start; nothing else uses them outside the online menus. Ad
+    hoc play is the multiplayer phase.
+* ☑ **Firmware LLE modules** ([D11](decisions.md)).
   * ☑ Recompiled from ELFs `ss-delta.exe` dumps as it loads them
     (`SSD_DUMP_ELFS=1`, already relocated): `sysmodule.skprx` (19
     functions), `libSceFt2` (758), `libpvf` (98), `libscemp4` (274) and
     `libsceavplayer` (305). The translator gained 4-instruction `IT`
     blocks, `mcr` to TPIDRURO and the fixed-point `vcvt` forms. 0 failing
     in 7,593 dynarmic tests over these modules.
-  * ☐ 17 font functions (14 `libSceFt2`, 3 `libpvf`) use NEON forms the
-    translator lacks: `vld2`/`vld4`/`vst2`/`vst4`, 64-bit `vld1`/`vst1`,
-    `vshll` by the element size, `vmov.16` and `vbic.i32` immediate. None
-    has run in any session.
+  * ☑ 17 font functions (14 `libSceFt2`, 3 `libpvf`) used NEON forms the
+    translator lacked: `vld2`/`vld4`/`vst2`/`vst4`, `vld1`/`vst1` with an
+    alignment hint, `vshll`, `vmov.8/16` into a lane and `vbic`/`vorr`
+    immediates, plus a `mov pc, rN` jump (2026-10-12). All 772 + 101
+    functions are now native, so the build without the JIT has no font
+    path left to stop on. 0 failing in 3,537 + 1,468 dynarmic tests (the
+    new forms included), and in the game modules' full suite. None of these
+    functions has run in a session yet (the modules verify on first call).
   * Firmware code is Sony's. Any recompiled firmware module is generated
     locally from the user's PUP, like the game.
 * ☑ **NativeCPU** (fork patch 0024): threads run on native code alone. It
@@ -409,7 +422,8 @@ Results: [02-baseline](02-baseline.md#phase-7-map-sweep-2026-10-11).
 * ☑ Mind's Eye overlay works: health-coloured monster silhouettes, weak
   spots and hidden spots. Its depth read is served correctly; Plus's
   `d248beee` isn't needed.
-* ◐ Every quest map renders correctly (`tools/map-sweep.ps1`, 2026-10-11):
+* ☑ Every quest map renders correctly (`tools/map-sweep.ps1`, 2026-10-11;
+  all 50 map IDs in Phase 8):
   * 48 of 50 map IDs swept, all correct at 29.3–29.7 fps.
   * ST17A's only quest doesn't start from Stage Select. It shares its
     arena with ST17B/C.

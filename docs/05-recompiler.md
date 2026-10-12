@@ -216,13 +216,24 @@ no `--load-base`.
 
 | | sysmodule | libSceFt2 | libpvf | libscemp4 | libsceavplayer |
 |---|---|---|---|---|---|
-| functions recompiled | 19 | 758 | 98 | 274 | 305 |
-| left to the JIT (NEON forms) | 0 | 14 | 3 | 0 | 0 |
-| dynarmic tests | 351 | 3,502 | 1,460 | 1,385 | 895 |
+| functions recompiled | 19 | 772 | 101 | 274 | 305 |
+| left to the JIT | 0 | 0 | 0 | 0 | 0 |
+| dynarmic tests | 351 | 3,537 | 1,468 | 1,385 | 895 |
 
 * The translator gained three forms for them: 4-instruction `IT` blocks
   (the inventory and the translator stopped at three), `mcr` to TPIDRURO
   (the module loader is kernel code), and the fixed-point `vcvt` forms.
+* The 17 font functions left out at first (2026-10-12) needed
+  `vld2`/`vld4`/`vst2`/`vst4` (multiple structures: `vldn`/`vstn` in
+  `neon.h` interleave the members' registers), `vld1`/`vst1` with an
+  alignment hint (`[r4:0x40]`, ignored), `vshll` (widen, then shift),
+  `vmov.8/16 dn[x], rt` and `vbic`/`vorr` immediates, and `mov pc, rN`
+  (a jump: Thumb stays Thumb, ARM interworks). One more had an `svc` in a
+  literal pool after a call that does not return: a Thumb function that
+  uses NEON now stays on the fallback only for a missing **vector**
+  translation; other unsupported instructions become traps, as in the
+  rest of the Thumb code. `make_tests.py` keys `vmov` forms by element
+  size, so the 8/16-bit lane moves get their own tests.
 * With them, and NativeCPU, the JIT runs nothing in title, menu, field and
   quest runs.
 
