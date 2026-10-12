@@ -32,6 +32,10 @@ Phase 8 (PC features) is mostly done:
 60 fps is studied but not shipped: a quest started at 60 fps doesn't
 finish loading. See the [plan](docs/03-plan.md).
 
+Phase 9 (the compatibility pass, [06-compatibility](docs/06-compatibility.md))
+and Phase 10 (Ad Hoc Play) are done. Copies of `ss-delta.exe` play together
+in Ad Hoc Play, on one PC (`--player 2`) or between PCs in a LAN.
+
 ## Documentation
 
 | Doc | Contents |

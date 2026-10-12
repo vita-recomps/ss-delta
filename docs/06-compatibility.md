@@ -62,7 +62,9 @@ cannot win fights: ✅ from a script means "reached and behaved", not
 | Log & Settings: Save, Options | ✅ | scripted | Color Space set to Wide, saved, kept after a restart (stored in `system.bin` +0x21c); all six option pages open |
 | Network: Play Online | ✅ | scripted | offline, Play Online returns to the menu (it waited at "Connecting..." forever before patch 0036) |
 | Ad Hoc Play: Create Room, Search for Room, join | ✅ | scripted | two copies on one PC (`--player 2` and `3`, 2026-10-12, NativeCPU): the search lists the host's room, the client joins, both rooms show both sorcerers (plan Phase 10) |
-| Ad Hoc Play: a quest together | ⚠️ | scripted | Ready, Start Quest, the quest's intro and the fight run in step on both copies (same kills, same "targets remaining", same results page). Not played to a win: both sorcerers of the 100% save carry a Black Rite price (constant damage) and die, so the quest fails for both, as it should. The return to the room after a quest: seen once (JIT run); a copy that lets the "Return to lobby" countdown run out leaves the room |
+| Ad Hoc Play: a quest together | ✅ | user, scripted | the owner played a quest together and completed it without issues (2026-10-12). Scripted before: Ready, Start Quest and the fight run in step on both copies (same kills, same "targets remaining", same results page). A copy that lets the "Return to lobby" countdown run out leaves the room |
+| Ad Hoc Play: LAN between two PCs (`network = lan`) | ✅ | user | 2026-10-12 |
+| Ad Hoc Play: a gamepad per copy (`[multiplayer] gamepad`) | ❔ | | needs two gamepads |
 
 ## Quests
 

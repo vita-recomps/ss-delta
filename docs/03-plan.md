@@ -524,7 +524,7 @@ Matrix: [06-compatibility](06-compatibility.md).
 
 **Exit:** the matrix has no blocking entries.
 
-## Phase 10 — Ad hoc multiplayer (L) ◐
+## Phase 10 — Ad hoc multiplayer (L) ☑
 
 The owner asked for it on 2026-10-12, after Phase 9. Ad Hoc Play (Librom →
 Network → Ad Hoc Play) between copies of the port. Unlike decimation's
@@ -558,9 +558,11 @@ sockets that Vita3K maps to UDP.
   so the loader puts it where its code was generated for (`0x80757000`,
   where it lands anyway), and `--dump-elfs` loads it so that
   `install-game.ps1` gets its ELF.
-* ◐ **10e Package**: `run-player2.bat` and the README's Ad Hoc Play section
-  in `make-dist.ps1`; the owner's folder is updated. A check by the owner
-  (a quest won together, a gamepad per copy, LAN between two PCs) is open.
+* ☑ **10e Package**: `run-player2.bat` and the README's Ad Hoc Play section
+  in `make-dist.ps1`; the owner's folder is updated. The owner's check
+  (2026-10-12): a quest played and completed together without issues, and
+  LAN play between two PCs works. A gamepad per copy is still unchecked
+  (the owner has one gamepad).
 
 **Exit:** two copies play a quest together in Ad Hoc Play, from a package
 built without the JIT.
