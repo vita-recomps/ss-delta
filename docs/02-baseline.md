@@ -597,6 +597,10 @@ prints NVIDIA's float-controls properties.
 **On hold (owner, 2026-10-10)** until direct NVIDIA access is available for
 straightforward debugging.
 
+**Recheck (2026-10-12, `ss-delta.exe` at 3c67172, no JIT, shader cache
+version 15).** The floor is **still white** on the RTX 4090 (owner); the
+same package draws it textured on the Radeon 760M.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
