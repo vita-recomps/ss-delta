@@ -648,7 +648,14 @@ is not enough: NVIDIA still returns 0 with them, also with the
   screenshot `fix4-vk-elder.png`.
 * RTX 4090, OpenGL: the floor is no longer white but flat grey-green; the
   OpenGL backend has its other known problems and isn't our renderer (D4).
-* AMD: to recheck on the mini PC. The change should be a no-op there.
+* AMD (Radeon 760M, 2026-10-13): no change, as expected. The arena floor
+  is textured and `ELDER DEFAULT MAP` matches `fix4-vk-elder.png` (haze,
+  solid cloak), both at 30 fps. The full map sweep (`build/maps-0039-amd/`,
+  `full_3d`, scale 1, all modules native): every map renders as in the
+  Phase 7/8 sweeps, 29.4–29.7 fps mean, all still running at the end.
+  ST17A doesn't start from Stage Select, as before. ST17C's dragon killed
+  the idle player before the 40 s shot in two runs; with `-Load 25` the
+  intro and the arena render.
 
 ### RTX 4090 map sweep (2026-10-12)
 

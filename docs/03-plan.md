@@ -128,7 +128,8 @@ Carried over (not blocking Phase 2):
     the other operand. Fixed by patch 0039 (NaN-ignoring min/max, shader
     cache version 16); the floor is textured on the 4090
     ([02-baseline](02-baseline.md#the-white-floor-is-a-nan-in-minmax-rtx-4090-2026-10-12)).
-  * ☐ Recheck the arena and the field on the Radeon 760M with patch 0039.
+  * ☑ Recheck the arena and the field on the Radeon 760M with patch 0039
+    (2026-10-13): unchanged, and a full map sweep renders as before.
   * ☑ Full map sweep on the RTX 4090 with patch 0039 (`full_3d` + scale 2):
     all 50 map IDs as on AMD, 29.3–29.6 fps
     ([02-baseline](02-baseline.md#rtx-4090-map-sweep-2026-10-12)).
