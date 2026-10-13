@@ -132,8 +132,12 @@ Carried over (not blocking Phase 2):
   * ☑ Full map sweep on the RTX 4090 with patch 0039 (`full_3d` + scale 2):
     all 50 map IDs as on AMD, 29.3–29.6 fps
     ([02-baseline](02-baseline.md#rtx-4090-map-sweep-2026-10-12)).
-  * ◐ HDR: no HDR output (SDR swapchain, owner chose no HDR mode). Visual
-    check on the HDR desktop, windowed and fullscreen, by the owner.
+  * ☑ Non-map checks on the RTX 4090 (story scenes, credits, new game,
+    final battle, Ad Hoc Play), 2026-10-13: as on AMD after fork patch 0040
+    (Ad Hoc Play hung when opened after the journal; not NVIDIA-specific)
+    ([02-baseline](02-baseline.md#rtx-4090-non-map-pass-2026-10-13)).
+  * ☑ HDR: no HDR output (SDR swapchain, owner chose no HDR mode). On the
+    HDR desktop it looks normal, windowed and fullscreen (owner, 2026-10-13).
 * ☑ Zero-init experiment: done on AMD, with no effect. The cause was
   elsewhere.
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They

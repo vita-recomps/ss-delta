@@ -1,0 +1,127 @@
+From f95807a27f6e36d13c05e5fd89ee2e9a853056ac Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 10:45:42 +0200
+Subject: [PATCH] ss-delta: hold each recompiled module's place until it loads
+
+- aot_init allocates every module's code pages (and the segment's tail up to the next module,
+  at most 256 KB) so nothing else lands there; the loader releases a module's hold right before
+  placing its first segment (aot_release_reservation)
+- adhoc_matching.suprx loads only when Ad Hoc Play opens: after browsing the journal first, its
+  place (0x80757000) was taken, the module went elsewhere, its native code could not run and
+  NativeCPU stopped the thread ("Connecting .." forever)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/cpu/include/cpu/aot.h    |  3 +++
+ vita3k/cpu/src/aot.cpp          | 39 +++++++++++++++++++++++++++++++++
+ vita3k/kernel/src/load_self.cpp |  8 ++++---
+ 3 files changed, 47 insertions(+), 3 deletions(-)
+
+diff --git a/vita3k/cpu/include/cpu/aot.h b/vita3k/cpu/include/cpu/aot.h
+index 0fab8be6..c0d02e55 100644
+--- a/vita3k/cpu/include/cpu/aot.h
++++ b/vita3k/cpu/include/cpu/aot.h
+@@ -52,6 +52,9 @@ bool aot_native_cpu();
+ // The loader places a relocatable module there when that memory is free, so that a module loaded
+ // late in a session (ad hoc play) lands where its code was generated for (docs/decisions.md D8).
+ Address aot_preferred_base(const std::string &module_stem);
++// aot_init holds each module's code pages so that nothing else is allocated there; the loader
++// releases them right before it places that module (by the same name stem as above).
++void aot_release_reservation(MemState &mem, const std::string &module_stem);
+ 
+ // The native function for a guest entry address (bit 0 set for Thumb), or null. A module's
+ // functions become visible once its code has been checked against guest memory.
+diff --git a/vita3k/cpu/src/aot.cpp b/vita3k/cpu/src/aot.cpp
+index 9cf6cff3..cacefd20 100644
+--- a/vita3k/cpu/src/aot.cpp
++++ b/vita3k/cpu/src/aot.cpp
+@@ -19,6 +19,7 @@
+ #include <cpu/aot_abi.h>
+ #include <cpu/impl/aot_hooks.h>
+ 
++#include <mem/functions.h>
+ #include <mem/state.h>
+ #include <util/log.h>
+ 
+@@ -53,6 +54,7 @@ struct LoadedModule {
+     const armrecomp::AotModule *module = nullptr;
+     uint32_t lo = 0, hi = 0; // [first entry, last entry]
+     uint32_t end = 0; // end of the last function's code
++    Address reserved = 0; // the code pages, held until the module loads (aot_release_reservation)
+     std::atomic<Verified> verified{ Verified::unknown };
+     std::mutex verify_mutex;
+ };
+@@ -251,6 +253,29 @@ void aot_init(MemState &mem, Address sentinel) {
+         m->end = mod.function_count ? m->hi + mod.functions[mod.function_count - 1].size : 0;
+         LOG_INFO("AOT: {} ({} functions, {:08x}-{:08x}) from {}", mod.name, mod.function_count, m->lo, m->hi, m->path);
+     }
++
++    // Hold each module's place so that nothing else is allocated there before it loads: a module
++    // loaded late (ad hoc play) otherwise finds it taken, depending on what the session did
++    // before, and its native code can't run. The segment is longer than the code (data after it),
++    // so the hold runs up to the next module's code, at most 256 KB past this one's.
++    std::vector<LoadedModule *> placed;
++    for (auto &m : registry.modules)
++        if (m->module && m->module->function_count)
++            placed.push_back(m.get());
++    std::sort(placed.begin(), placed.end(), [](const LoadedModule *a, const LoadedModule *b) { return a->lo < b->lo; });
++    for (size_t i = 0; i < placed.size(); i++) {
++        LoadedModule &m = *placed[i];
++        const Address page = m.lo & ~0xFFFu;
++        const Address code_end = (m.end + 0xFFFu) & ~0xFFFu;
++        Address hold_end = code_end + 0x40000;
++        if (i + 1 < placed.size())
++            hold_end = std::max(code_end, std::min(hold_end, placed[i + 1]->lo & ~0xFFFu));
++        const std::string name = fmt::format("aot_reserve:{}", m.module->name);
++        m.reserved = try_alloc_at(mem, page, hold_end - page, name.c_str());
++        if (!m.reserved)
++            m.reserved = try_alloc_at(mem, page, code_end - page, name.c_str());
++        LOG_WARN_IF(!m.reserved, "AOT: {:08x}-{:08x} is already taken; {} may not load where its native code expects it", page, code_end, m.module->name);
++    }
+     registry.enabled = !registry.functions.empty();
+ }
+ 
+@@ -307,6 +332,20 @@ AotFn checked(const std::pair<AotFn, LoadedModule *> &entry) {
+ 
+ } // namespace
+ 
++void aot_release_reservation(MemState &mem, const std::string &module_stem) {
++    for (const auto &m : registry.modules) {
++        if (!m->reserved || !m->module || !m->module->name)
++            continue;
++        std::string name = m->module->name;
++        if (const auto dot = name.rfind('.'); dot != std::string::npos)
++            name.resize(dot);
++        if (name == module_stem) {
++            free(mem, m->reserved);
++            m->reserved = 0;
++        }
++    }
++}
++
+ Address aot_preferred_base(const std::string &module_stem) {
+     for (const auto &m : registry.modules) {
+         if (!m->module || !m->module->name || m->module->function_count == 0)
+diff --git a/vita3k/kernel/src/load_self.cpp b/vita3k/kernel/src/load_self.cpp
+index 9a40254f..c9cef115 100644
+--- a/vita3k/kernel/src/load_self.cpp
++++ b/vita3k/kernel/src/load_self.cpp
+@@ -650,10 +650,12 @@ SceUID load_self(KernelState &kernel, MemState &mem, const void *self, const std
+                 auto alloc_name = fmt::format("{}:seg{}", self_path, seg_index);
+ 
+                 // ss-delta: a relocatable module with recompiled code goes where that code was
+-                // generated for, when free (cpu/aot.h aot_preferred_base)
++                // generated for, which aot_init keeps free for it (cpu/aot.h aot_preferred_base)
++                std::string stem = self_path.substr(self_path.find_last_of("/:") + 1);
++                stem = stem.substr(0, stem.rfind('.'));
++                if (seg_index == 0)
++                    aot_release_reservation(mem, stem);
+                 if (isRelocatable && seg_index == 0) {
+-                    std::string stem = self_path.substr(self_path.find_last_of("/:") + 1);
+-                    stem = stem.substr(0, stem.rfind('.'));
+                     if (const Address base = aot_preferred_base(stem)) {
+                         segment_address = try_alloc_at(mem, base, seg_header.p_memsz, alloc_name.c_str());
+                         LOG_INFO_IF(segment_address, "{}: code placed at {}, where its native code expects it", self_path, log_hex(base));
+-- 
+2.56.0.windows.2
+

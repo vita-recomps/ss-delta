@@ -676,9 +676,37 @@ the same steps as the Phase 7/8 sweeps on the Radeon 760M.
 on (here: LG ULTRAGEAR, 10 bpc, SDR content brightness 240 nits), Windows
 composites the window as SDR content at that brightness. HDR output
 (an HDR10/scRGB swapchain, inverse tone mapping) is not planned (owner,
-2026-10-12). The sweep above ran on that HDR desktop. Whether the picture
-looks right on the panel, windowed and fullscreen, is for the owner to
-judge by eye: screenshots capture the SDR image before Windows converts it.
+2026-10-12). The sweep above ran on that HDR desktop. Screenshots capture
+the SDR image before Windows converts it, so the owner checked the panel by
+eye with the `dist/ss-delta-922f795` package: the picture looks normal,
+windowed and fullscreen (2026-10-13).
+
+### RTX 4090 non-map pass (2026-10-13)
+
+The checks of [06-compatibility](06-compatibility.md) that aren't map shots,
+repeated on the 4090 (list there). Everything renders and behaves as on
+AMD. One bug found, not vendor-specific:
+
+* **Ad Hoc Play stuck at "Connecting .."** when opened after browsing the
+  journal. `adhoc_matching.suprx` loads only then, and its native code
+  expects it at `0x80757000`. That place was taken by then ("0x80757000 is
+  taken; the module's native code will not match"), the module went to
+  `0x80759000`, and NativeCPU stopped the calling thread ("no native code
+  for the guest code at 0x80759000"). The AMD runs opened Ad Hoc Play
+  straight from the hub, when the place was still free.
+* **Fix: fork patch 0040.** `aot_init` allocates each recompiled module's
+  place (its code, and the segment's tail up to the next module, at most
+  256 KB) at boot; the loader frees it right before it places that module.
+  The first version held only the code pages, and libult's data tail then
+  pushed it out of place; holding up to the next module fixed that. After
+  the fix every module, `adhoc_matching` included, logs "code placed ...
+  where its native code expects it" and "matches guest memory".
+* With the fix, the same route (journal first, then Ad Hoc Play) reaches
+  Create Room / Search for Room, and two copies join a room, ready up and
+  start a quest together.
+* The ad hoc module needs `ssd_aot_fw_adhoc_matching.dll`: the first
+  package built on the 4090 (`dist/ss-delta-922f795`) lacked it, because
+  `build/recomp` was configured without `fw_adhoc_matching`.
 
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load

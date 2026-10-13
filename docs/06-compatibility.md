@@ -20,6 +20,20 @@ with Mind's Eye, after camera turns and a walk. All still running at the
 end, 29.5–29.7 fps mean. h0301 stayed on Stage Select once (script) and
 started on a rerun.
 
+**RTX 4090 pass (2026-10-13):** the non-map parts repeated on NVIDIA (driver
+617.42), all modules native, `full_3d` + scale 2, as copies `--player 2`/`3`
+(user 00 not written): book-page episodes, StaffRoll credits, EndingDelta,
+new game with the four original-game import prompts declined, a new save
+and the opening movie, the 100% save's hub and journal (contents, Mad
+Chronicle chapters), Fight Magusar through Librom's sacrifice, Magusar's
+introduction, the final battle and "This is not the end...", and Ad Hoc
+Play: Create Room, Search for Room, join, both Ready, Start Quest, and both
+copies in the quest (25 fps each). All as on AMD, after one fix: opening Ad
+Hoc Play after browsing the journal hung at "Connecting .." because
+`adhoc_matching.suprx`'s place was taken and its native code could not run
+(fork patch 0040, [02-baseline](02-baseline.md#rtx-4090-non-map-pass-2026-10-13)).
+Not vendor-specific: the AMD runs opened Ad Hoc Play straight from the hub.
+
 Unless noted: all modules native (NativeCPU, no JIT), Vulkan on the Radeon
 760M, `full_3d` on. Scripts can start quests and walk menus, but they
 cannot win fights: ✅ from a script means "reached and behaved", not
