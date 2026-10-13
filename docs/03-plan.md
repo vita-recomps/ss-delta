@@ -7,6 +7,14 @@ the project.
 
 Status key: ☐ not started · ◐ in progress · ☑ done
 
+Paths in the finished phases are those of their time. Since
+[D17](decisions.md) (2026-10-13) `recomp/` and the generic tools
+(`tools/velf.py`, `imix.py`, `inventory.py`, `v3kdrive.py`, ...) are in
+`third_party/recomp/`, the PowerShell build, install and packaging scripts
+are Python scripts there (`build-vita3k.py`, `install-game.py`,
+`make-dist.py`), and the fork's `vita3k/ss-delta/` is split into
+`vita3k/game-frontend/` and `vita3k/games/ss-delta/`.
+
 The approach is the hybrid from [research](01-research.md#approach-options)
 and [D1](decisions.md):
 
@@ -591,6 +599,24 @@ sockets that Vita3K maps to UDP.
 
 **Exit:** two copies play a quest together in Ad Hoc Play, from a package
 built without the JIT.
+
+## Shared toolchain with shinobido-2 (S) ☑
+
+[D17](decisions.md), for the sibling port of Shinobido 2 (its D4 and D6).
+
+* ☑ The fork as a submodule, `third_party/vita3k` on branch `games` (the
+  `ss-delta` branch, patch 0042, plus the shared single-game frontend).
+* ☑ `recomp/` and the generic tools replaced by the `vita-recomp`
+  submodule, `third_party/recomp`; SSD's own tools point at it.
+* ☑ `game.json` and `docs/dist-readme.txt` for the shared Python scripts;
+  `build-vita3k.ps1`, `install-game.ps1`, `make-dist.ps1` and
+  `ssdelta_ini.py` deleted.
+* ☑ Checked (2026-10-13): the fork built with `build-vita3k.py`; the new
+  `ss-delta.exe`, on a junction file system with a copy of the saves,
+  starts ST01A from Stage Select on native code (all ten modules), 30 fps
+  on the loading screen, then 56–58 fps in the field.
+
+**Exit:** `ss-delta.exe` built from the submodules plays a quest as before.
 
 ## Later (deferred)
 

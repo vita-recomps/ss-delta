@@ -1,11 +1,12 @@
 # 04 — Code inventory (Phase 2)
 
 What the recompiler has to cover, measured on the 1.30 eboot and the three
-bundled modules worth recompiling. Produced by `tools/inventory.py`
-(recursive descent over every exidx function, using `tools/vitaelf.py`).
+bundled modules worth recompiling. Produced by `inventory.py`
+(recursive descent over every exidx function, using `vitaelf.py`), both in
+`third_party/recomp/tools/` since [D17](decisions.md) (`tools/` before).
 
 ```
-python -I tools/inventory.py extracted/elf/<module>.elf third_party/vita-headers/db/360 generated/inventory/<module>
+python -I third_party/recomp/tools/inventory.py extracted/elf/<module>.elf third_party/vita-headers/db/360 generated/inventory/<module>
 ```
 
 Output goes to `generated/inventory/<module>/`, which is never committed

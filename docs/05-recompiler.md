@@ -3,15 +3,25 @@
 `recomp/` turns a module's Thumb-2 code into C++ ahead of time
 ([D1](decisions.md), [D6](decisions.md)). Its input is `extracted/elf/` and
 its output goes to `generated/`; neither is ever committed ([D2](decisions.md)).
+Since [D17](decisions.md) (2026-10-13) it lives in the shared `vita-recomp`
+repo, checked out as `third_party/recomp/`: the `recomp/...` and `tools/...`
+paths in this document are inside that folder (dated results below keep
+their old wording).
 
 ```
-python -I recomp/recompile.py extracted/elf/<module>.elf generated/<module>
+python -I third_party/recomp/recomp/recompile.py extracted/elf/<module>.elf generated/<module>
 . .\tools\devshell.ps1
-cmake -S recomp -B build/recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S third_party/recomp/recomp -B build/recomp -G Ninja -DCMAKE_BUILD_TYPE=Release `
+      -DGENERATED_DIR="$PWD\generated" -DVITA3K_SRC="$PWD\third_party\vita3k" -DVITA3K_BUILD="$PWD\build\vita3k"
 cmake --build build/recomp                  # gen_<module>.lib and ssd_aot_<module>.dll
-.\recomp\run-tests.ps1                      # dynarmic comparison, all modules
+.\third_party\recomp\recomp\run-tests.ps1 -Root .   # dynarmic comparison, all modules
 $env:SSD_AOT = "$PWD\build\recomp\ssd_aot_eboot.dll"   # then launch the fork as usual
 ```
+
+`GENERATED_DIR` is required; `VITA3K_SRC` and `VITA3K_BUILD` are required
+when `generated/tests/<module>/` exists (the tests link the fork's
+dynarmic). A `build/recomp` configured from the old in-repo `recomp/` has to
+be deleted and configured again.
 
 ## Layout
 
@@ -115,9 +125,9 @@ Native code covers every function of the four modules: Thumb, NEON (see
 address Vita3K loads their code segment at ([D8](decisions.md)):
 
 ```
-python -I recomp/recompile.py extracted/elf/libc.elf generated/libc --load-base 8031e000
-python -I recomp/recompile.py extracted/elf/libfios2.elf generated/libfios2 --load-base 8036f000
-python -I recomp/recompile.py extracted/elf/libult.elf generated/libult --load-base 80451000
+python -I third_party/recomp/recomp/recompile.py extracted/elf/libc.elf generated/libc --load-base 8031e000
+python -I third_party/recomp/recomp/recompile.py extracted/elf/libfios2.elf generated/libfios2 --load-base 8036f000
+python -I third_party/recomp/recomp/recompile.py extracted/elf/libult.elf generated/libult --load-base 80451000
 ```
 
 libult's address depends on libfiber: with `SSD_AOT` the fork uses the
@@ -385,7 +395,7 @@ native those are rare (168 checks in 120 s with NEON native).
 
 The log is asynchronous and loses its tail when the process is killed. Use
 `SSD_AOT_STATS` and `SSD_TRACE_IMPORTS` for anything that has to survive.
-`tools/stackdump.py <pid|image>` prints every thread's stack with PDB
+`third_party/recomp/tools/stackdump.py <pid|image>` prints every thread's stack with PDB
 symbols, for hangs.
 
 ### Results (1.30, Radeon 760M, 2026-10-10)

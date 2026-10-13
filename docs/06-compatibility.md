@@ -7,7 +7,7 @@ keeps this current.
 * **Status:** ✅ works · ⚠️ works with a known issue · ❌ broken ·
   ❔ not checked yet.
 * **Checked by:**
-  * *scripted*: driven by `tools/v3kdrive.py` (Stage Select sweeps with
+  * *scripted*: driven by `v3kdrive.py` (Stage Select sweeps with
     `tools/map-sweep.ps1`, routes through the menus on a save), judged
     from screenshots, frame-rate samples and the log;
   * *user*: played by the user;

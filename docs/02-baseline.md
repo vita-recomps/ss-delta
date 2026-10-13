@@ -2,7 +2,13 @@
 
 How the unmodified game behaves in Vita3K on the dev machine, recorded
 2026-10-09. This is the reference the port is measured against. Repeat it
-with `tools/v3kdrive.py` after any Vita3K update.
+with `third_party/recomp/tools/v3kdrive.py` after any Vita3K update.
+
+Paths: since [D17](decisions.md) (2026-10-13) the generic tools
+(`v3kdrive.py`, `stackdump.py`, ...) and `recomp/` are in
+`third_party/recomp/`, and the fork's `vita3k/ss-delta/` is split into
+`vita3k/game-frontend/` and `vita3k/games/ss-delta/`. Dated entries below
+keep the paths of their time.
 
 ## Setup
 
@@ -16,7 +22,7 @@ with `tools/v3kdrive.py` after any Vita3K update.
 
 ## How runs are driven (no keyboard focus needed)
 
-`tools/v3kdrive.py`:
+`third_party/recomp/tools/v3kdrive.py`:
 
 * **`launch <TITLEID> [Vulkan|OpenGL]`**
   * Writes the backend into `config.yml`. A later `-B Vulkan` on the command

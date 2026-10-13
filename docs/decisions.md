@@ -162,6 +162,11 @@ directly, with the Plus diff as a hint rather than a ready-made fix.
 **Pinned:** upstream `b75d5e62` (2026-10-09, "appimage: Correctly copy data
 folder (#4216)").
 
+**Update (2026-10-13, [D17](#d17--the-toolchain-is-shared-with-shinobido-2-through-git-submodules-accepted-2026-10-13)):**
+the clone is now a git submodule on branch `games`, which continues
+`ss-delta` (patch 0042). The patch series in `patches/vita3k/` is kept as a
+record up to 0042; the submodule commit is the reference from now on.
+
 ## D6 — The recompiler is a Python generator; runtime and tests are C++ (accepted, 2026-10-10)
 
 **Context:** Phase 3. Decimation used a C++ framework (Yakumo's psprecomp)
@@ -195,6 +200,10 @@ recursive descent, jump tables, IT blocks).
   both.
 * Generated code depends only on `recomp/runtime/`. Phase 4 plugs it into
   Vita3K through that interface.
+
+**Update (2026-10-13, [D17](#d17--the-toolchain-is-shared-with-shinobido-2-through-git-submodules-accepted-2026-10-13)):**
+`recomp/` and the decoding tools moved, with their history, into the
+shared `vita-recomp` repo, checked out as `third_party/recomp`.
 
 ## D7 — Native code runs at JIT block boundaries, from a DLL the fork loads (accepted, 2026-10-10)
 
@@ -349,6 +358,14 @@ differential checks and Vita3K comparisons run against.
 * It stays in step with the fork: every fix applies to both executables.
 * Vita3K's other subsystems (app list, users, config types) come along.
   The exe hides them instead of removing them.
+
+**Update (2026-10-13, [D17](#d17--the-toolchain-is-shared-with-shinobido-2-through-git-submodules-accepted-2026-10-13)):**
+`vita3k/ss-delta/` was split into the shared single-game frontend
+(`vita3k/game-frontend/`) and `vita3k/games/ss-delta/`, which holds
+everything particular to this game (saves, add-ons, Ad Hoc Play,
+`boot_config.ini`, the 60 fps timer). `ss-delta.exe` behaves as before; its
+default `ss-delta.ini` is byte-identical. It gained `--install <pkg>
+--license <work.bin>` and `--write-ini <file>`.
 
 ## D11 — Threads run on native code alone (NativeCPU); firmware modules are recompiled too (accepted, 2026-10-11)
 
@@ -596,3 +613,55 @@ no third-party save is shipped or needed.
 * If another screen depends on the frame time the same way, it hangs at 60
   in a way the scripted checks didn't reach; switching back to 30 is the
   workaround.
+
+## D17 — The toolchain is shared with shinobido-2 through git submodules (accepted, 2026-10-13)
+
+**Context:**
+
+* The sibling port of Shinobido 2: Revenge of Zen (`<utakata>`)
+  reuses this project's Vita3K fork and recompiler. Its D4 splits them into
+  publishable repos that both games use as submodules; its D6 says they are
+  written as if public, for a later GitHub release. The owner considers
+  ss-delta done and approved switching it over (2026-10-13).
+* Until now the fork was a nested, ignored clone (D5) recorded here as a
+  patch series, and `recomp/` and the tools lived in this repo.
+
+**Decision:**
+
+* `third_party/vita3k` is a submodule of the fork on branch `games`: the
+  `ss-delta` branch (patch 0042) plus the split of `ss-delta.exe` into a
+  shared frontend and one executable per game (D10 update). Both games
+  pin commits of this one integration branch, so each fix reaches both.
+* `third_party/recomp` is a submodule of `vita-recomp`: `recomp/` and the
+  game-agnostic tools (`velf.py`, `vitaelf.py`, `inventory.py`,
+  `imix.py`, `v3kdrive.py`, `sfo.py`, `stackdump.py`), with their history,
+  game values turned into parameters (`recomp/CMakeLists.txt` takes
+  `GENERATED_DIR`, `VITA3K_SRC`, `VITA3K_BUILD` instead of `SSD_ROOT`).
+* The PowerShell build, install and packaging scripts are replaced by
+  Python scripts in `vita-recomp` (`build-vita3k.py`, `install-game.py`,
+  `make-dist.py`), driven by `game.json` at this repo's root: title,
+  supported eboot, modules to recompile and their load bases, the packaged
+  README (`docs/dist-readme.txt`) and extra files (`run-player2.bat`). The
+  ini comes from `ss-delta.exe --write-ini` instead of parsing
+  `settings.cpp` (`tools/ssdelta_ini.py`).
+* The hubs are bare repositories in `<git>\` (`vita3k.git`,
+  `vita-recomp.git`, `ss-delta.git`) until the owner publishes them; the
+  submodule URLs change then.
+* SSD's own tools stay here: `lspk.py`, `questmaps.py`, `map-sweep.ps1`,
+  `package4090.ps1` with `pkg4090/`, `devshell.ps1`.
+
+**Rejected:** keeping the nested clone and copying `recomp/` into
+shinobido-2: two copies of the fork patches and of the NEON layer would
+drift (shinobido-2 D4).
+
+**Consequences:**
+
+* A change to the fork or the recompiler is committed and pushed in its
+  own repo first, then the new submodule commit is committed here.
+* Docs and dated log entries written before 2026-10-13 keep the paths of
+  their time (`tools/v3kdrive.py`, `recomp/...`, `tools/*.ps1`,
+  `vita3k/ss-delta/`); the README and CLAUDE.md have the current ones.
+* Checked on 2026-10-13: the fork builds from the submodule with
+  `build-vita3k.py`, and `ss-delta.exe` from it starts a quest from Stage
+  Select (ST01A) with native code, switching to 30 fps for the loading
+  screen and back to 60.

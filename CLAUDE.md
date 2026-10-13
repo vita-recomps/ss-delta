@@ -2,8 +2,9 @@
 
 A static-recompilation PC port of Soul Sacrifice Delta (PS Vita, PCSA00152,
 1.30). Start with `README.md` and `docs/03-plan.md` to find the current phase.
-Sibling project: `<psp-project>` (Dissidia 012, PSP), which has the same
-conventions.
+Sibling projects: `<psp-project>` (Dissidia 012, PSP), which has the same
+conventions, and `<utakata>` (Shinobido 2, PS Vita), which shares this
+project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
 
 ## Hard rules
 
@@ -34,12 +35,34 @@ conventions.
   (`build/vita3k/bin/RelWithDebInfo/`); only `pref-path` points at the
   shared `extracted/vita3k/fs/`. Edits to cached `.spv` files must go there.
   `BootSequence` is set through the shared install:
-  `python -I tools/v3kdrive.py extracted/vita3k bootseq PCSA00152 <name>`.
-- Our Vita3K fork: `third_party/vita3k`, a nested git clone on branch
-  `ss-delta` ([D5](docs/decisions.md)), with Plus as remote `plus`. Build it
-  with `. .\tools\devshell.ps1; .\tools\build-vita3k.ps1` (MSVC + Ninja,
-  Qt 6.11.0 in `C:\Qt`) into `build/vita3k`. Export our commits to
-  `patches/vita3k/` with `git format-patch` before committing here.
+  `python -I third_party/recomp/tools/v3kdrive.py extracted/vita3k bootseq PCSA00152 <name>`.
+  It rewrites the installed `resource/config.ini` (backup `config.ini.orig`):
+  set it back to `Title` afterwards.
+- Shared toolchain ([D17](docs/decisions.md)): two git submodules, shared
+  with `<utakata>`, whose hubs are bare repositories in `<git>\` until
+  they are published (`git -c protocol.file.allow=always submodule update
+  --init`). Commit and push changes inside a submodule to its hub first,
+  then commit the new submodule commit here.
+  * `third_party/vita3k`: our Vita3K fork ([D5](docs/decisions.md)), branch
+    `games` (hub `<git>/vita3k.git`, remote `hub`; `origin` is upstream
+    Vita3K, `plus` is Vita3K-Plus). `games` is the old `ss-delta` branch
+    (patch 0042) plus the shared single-game frontend
+    (`vita3k/game-frontend/`) and one executable per game
+    (`vita3k/games/ss-delta/`, `vita3k/games/shinobido2/`). The patch
+    series in `patches/vita3k/` stops at 0042 (historical); the submodule
+    commit is the reference now. Its `external/cubeb` shows local changes
+    in two rust submodules: leave them.
+  * `third_party/recomp`: `vita-recomp` (hub `<git>/vita-recomp.git`,
+    branch `main`): the recompiler (`recomp/`), the generic tools
+    (`velf.py`, `vitaelf.py`, `inventory.py`, `imix.py`, `v3kdrive.py`,
+    `sfo.py`, `stackdump.py`, ...) and the Python build, install and
+    packaging scripts, which read `game.json`.
+- Build the fork with
+  `python -I third_party/recomp/tools/build-vita3k.py --project . [--target ss-delta]`
+  (MSVC found with vswhere, Ninja Multi-Config, RelWithDebInfo) into
+  `build/vita3k`. A fresh configure (`--reconfigure`, a new build dir) also
+  needs Qt 6.11.0 in `C:\Qt`: dot-source `tools/devshell.ps1` first, which
+  sets `Qt6_ROOT`.
 - Our build's `config.yml` must keep `disable-surface-sync: false` and
   `high-accuracy: true` (D4 update 4: fog, haze and smoke) and
   `memory-mapping: double-buffer` (`external-host` hides objects).
@@ -49,7 +72,11 @@ conventions.
   shaders there that break later runs: move the title's folder aside after
   such runs.
 - Recompiled code: build `ssd_aot_<module>.dll` (eboot, libc, libfios2,
-  libult) with `recomp/` and set `SSD_AOT` to the `;`-separated DLL paths
+  libult) with `third_party/recomp/recomp/` (`cmake -S third_party/recomp/recomp
+  -B build/recomp -G Ninja -DCMAKE_BUILD_TYPE=Release -DGENERATED_DIR=<abs>/generated
+  -DVITA3K_SRC=<abs>/third_party/vita3k -DVITA3K_BUILD=<abs>/build/vita3k`, in an
+  MSVC shell; a `build/recomp` configured from the old `recomp/` must be
+  deleted and configured again) and set `SSD_AOT` to the `;`-separated DLL paths
   before launching the fork. The libraries are generated at their load
   addresses (docs/05-recompiler.md, which also lists the other `SSD_AOT_*`
   switches). A regenerated module that changes `aot_abi.h` needs a fork
@@ -58,17 +85,24 @@ conventions.
   `Vita3K.exe` in `build/vita3k/bin/RelWithDebInfo/`. It reads
   `ss-delta.ini` there (set `vita_fs` and `recompiled` for this machine)
   and logs to `ss-delta/vita3k.log`. Drive it with
-  `python -I tools/v3kdrive.py <bin dir> start`, then `run`/`close` as for
-  Vita3K. `tools/make-dist.ps1 [-VitaFs <fs>]` lays out a self-contained
-  folder in `dist/` (ignored; it holds the game-derived `ssd_aot_*.dll`).
-- `tools/install-game.ps1 -Dump <zip> -Firmware <PUPs> [-Name x]` does the whole
-  thing from a dump into `dist/<name>/` (work files in `build/install-<name>/`);
-  `make-dist.ps1 -NoJit` takes the exe built without dynarmic
-  (`build-vita3k.ps1 -NoJit` → `build/vita3k-nojit`).
+  `python -I third_party/recomp/tools/v3kdrive.py <bin dir> start`, then
+  `run`/`close` as for Vita3K.
+  `python -I third_party/recomp/tools/make-dist.py --project . [--vita-fs <fs>] [--name x]`
+  lays out a self-contained folder in `dist/` (ignored; it holds the
+  game-derived `ssd_aot_*.dll`; the ini comes from `ss-delta.exe
+  --write-ini`, the README from `docs/dist-readme.txt`, `run-player2.bat`
+  from `game.json`).
+- `python -I third_party/recomp/tools/install-game.py --project . --firmware <PUPs>
+  --install <zip> [--name x]` does the whole thing from a dump into
+  `dist/<name>/` (work files in `build/install-<name>/`), as `game.json`
+  says (supported eboot, modules, load bases). `make-dist.py --no-jit`
+  takes the exe built without dynarmic (`build-vita3k.py --no-jit` →
+  `build/vita3k-nojit`). Never point a test install at the owner's `dist/`
+  folders: use `--name scratch-...`.
 - Firmware modules by hand (D11): run `ss-delta.exe` once with `SSD_DUMP_ELFS=1`, copy
   `ss-delta/elfdumps/PCSA00152/*_{sysmodule,libSceFt2,libpvf,libscemp4,libsceavplayer}.elf`
   to `extracted/elf/firmware/<name>.elf`, then
-  `python -I recomp/recompile.py extracted/elf/firmware/<name>.elf generated/fw_<name>`
+  `python -I third_party/recomp/recomp/recompile.py extracted/elf/firmware/<name>.elf generated/fw_<name>`
   (no `--load-base`: the dumps are relocated) and add `fw_<name>` to
   `RECOMP_MODULES` in `build/recomp`. `ss-delta.exe` runs on NativeCPU (no
   JIT) by default. `adhoc_matching` loads only in Ad Hoc Play (`--dump-elfs`
@@ -110,19 +144,26 @@ conventions.
   save in slot 1 and the story-complete Apollo save in slot 2 (owner's
   request, 2026-10-11); load slot 2 for late-game tests instead of swapping
   files. Older copies: `build/save-backup-*`.
-- `recomp/run-tests.ps1` runs the test binaries under a memory and time
-  ceiling (`recomp/tests/guarded-run.ps1`). Keep new heavy steps guarded
-  too: a runaway test once hung the machine (14 GB RAM).
+- `third_party/recomp/recomp/run-tests.ps1 -Root .` runs the test binaries
+  under a memory and time ceiling (`recomp/tests/guarded-run.ps1` there).
+  Keep new heavy steps guarded too: a runaway test once hung the machine
+  (14 GB RAM).
+- Test runs that must not touch the owner's saves or install: a folder with
+  `ss-delta.exe`, its DLLs, the `ssd_aot_*.dll` and an `ss-delta.ini` whose
+  `vita_fs` is a junction file system (junctions to the shared `fs/`, but
+  `ux0/user` copied, and `ux0/app/PCSA00152/resource` a real folder with
+  copies of its `.ini` files, so `bootseq` on that folder writes the copy).
 - NID names: vitasdk `vita-headers` db in `third_party/vita-headers/db/360`
   (pinned commit in `PINNED_COMMIT`, not committed). The code inventory is
-  regenerated with `tools/inventory.py` into `generated/inventory/`.
+  regenerated with `third_party/recomp/tools/inventory.py` into
+  `generated/inventory/`.
 - In Bash heredocs, backslash escapes inside Python strings get mangled. Use
   the Edit tool, or build backslashes with `chr(92)`, for strings containing
   `\`.
 - GitHub connections from this machine stall intermittently. Use
   `timeout` plus `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and
   retry; codeload.github.com tarballs are reliable.
-- `tools/v3kdrive.py` never takes keyboard focus. Don't add focus-stealing
+- `v3kdrive.py` never takes keyboard focus. Don't add focus-stealing
   input without asking.
 
 ## Keep docs current
