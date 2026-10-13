@@ -502,12 +502,19 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * The rest takes buttons or the mouse: the post-battle "touch enemies
     or allies" choice, pacts in Phantom Quests, the quest-intro skip
     (START also skips it).
-* ◐ **60 fps study** (deferred by the owner, 2026-10-11; not shipped; [02-baseline](02-baseline.md#60-fps-study)).
+* ☑ **60 fps** as an option (fork patch 0041, 2026-10-13;
+  [02-baseline](02-baseline.md#60-fps-the-loading-screen-and-loading-at-30-2026-10-13)).
   * The cap is the main loop's frame timer, created for 30 fps
     (`0x812ab888`), plus the display flip threshold of 2 vblanks.
-  * `[debug] frame_rate = 60` sets both in memory: 57 fps on this
-    machine, and player movement keeps its speed.
-  * Blocker: a quest started at 60 fps never finishes loading.
+  * `[display] frame_rate = 60` sets both in memory: 57 fps on this
+    machine. Game logic steps by the measured frame time: movement and an
+    idle boss fight keep their speed.
+  * The quest-start loading screen never ends at 60 (a frame-time check in
+    the loader; its loop animation is never told to stop), so loading
+    screens run at 30 (the `NowLoadingTask` in state 2, 3 or 5).
+  * Checked: all 50 maps, the fight timing, title → hub → journal → story
+    quest → results → hub. Default stays 30; ☐ the owner's playtest
+    (feel, audio against cutscenes) decides whether 60 becomes the default.
 * ☑ **Saves.**
   * ☑ Stored on the PC, in the Vita file system folder.
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
@@ -607,6 +614,6 @@ built without the JIT.
 | R4 | Vita3K renderer bugs (Vulkan crash on AMD, overexposure, Mind's Eye) | unplayable or ugly | Phase 1 root cause; Vita3K-Plus fixes; Phase 7 |
 | R5 | Threads/ULT/callback integration with Vita3K's kernel | deadlocks, crashes | keep Vita3K's thread model in the hybrid; fibers only in Phase 6 |
 | R6 | Firmware modules (fonts, AvPlayer) are Sony code run as LLE | can't drop the PUP dependency | FFmpeg for FMV; pvf/ft2 recompiled locally or replaced |
-| R7 | Frame-locked game logic | no 60 fps | treat 60 fps as optional (Phase 8 study) |
+| R7 | Frame-locked game logic | no 60 fps | treat 60 fps as optional; logic steps by frame time, loading screens kept at 30 ([D16](decisions.md)) |
 | R8 | GPL (Vita3K) | the runtime can't be relicensed | private, non-distributed project ([D2](decisions.md)); keep the recompiler tool separate |
 | R9 | First Vita recomp: no prior art to copy | slower progress | borrow patterns from decimation (Yakumo fallback), N64Recomp/XenonRecomp (lookup tables), 3dsrecomp (verify mode) |

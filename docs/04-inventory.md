@@ -166,7 +166,12 @@ Parsed from the EHABI tables (`vitaelf.exception_scopes`):
     object's first u64.
   * The flip threshold comes from static data `0x81c9578c` (`{0, 0, 2,
     1}`): its `+8` is copied to `0x81d3a630` by `0x81827cd0`.
-  * Frame time for game code: `0x812ac73c`.
+  * Frame time for game code: `0x812ac73c`. The main loop's update call
+    (`0x812ac0bc`) stores it in `0x81d0a150` for the per-frame job loops.
+  * Loading screen: `NowLoadingTask`, singleton `*0x81c9603c`, update
+    `0x812b58ec`, state at `+0xa4` (2, 3, 5 while it shows; 6, 4 after a
+    quest; reset `0x812b4d80`). Its UI animations run through
+    `0x81843d18` (advance) and `0x81844266` (finished).
 * **Resolution mode** (Phase 8): `0x812ab2b8` passes the config's
   `ResoDown` through `0x81828b0e` to `0x81828272` (table in 01-research).
 * **Render targets.** The main 3D target (720×408 in mode 1, the

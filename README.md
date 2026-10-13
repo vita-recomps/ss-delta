@@ -29,8 +29,9 @@ Phase 8 (PC features) is mostly done:
 * the add-ons (DLC) are unlocked;
 * F12 saves a screenshot.
 
-60 fps is studied but not shipped: a quest started at 60 fps doesn't
-finish loading. See the [plan](docs/03-plan.md).
+60 fps is an option (`[display] frame_rate = 60`): the game keeps its speed,
+and loading screens stay at 30 fps ([D16](docs/decisions.md)). It is off by
+default until it has been played.
 
 Phase 9 (the compatibility pass, [06-compatibility](docs/06-compatibility.md))
 and Phase 10 (Ad Hoc Play) are done. Copies of `ss-delta.exe` play together

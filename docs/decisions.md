@@ -554,3 +554,42 @@ no third-party save is shipped or needed.
 * If the allocator ever puts the matching module elsewhere, the log says
   the base "is taken" and the build without the JIT stops at its first
   call; the JIT build runs it as guest code.
+
+## D16 — 60 fps is an option that keeps loading screens at 30 (accepted, 2026-10-13)
+
+**Context:**
+
+* The owner asked for 60 fps, or to mark it unplanned if it needs a game
+  rewrite. The game paces its main loop with a frame timer created for 30
+  fps and flips every 2nd vblank; both are data in guest memory.
+* Game logic steps by the measured frame time, so movement and fights keep
+  their speed at 60 (02-baseline, 60 fps sections).
+* The quest-start loading screen never ends at 60: something in the loader
+  checks the frame time and fails below about 1/45 s. It was narrowed to
+  the time step of the game update and to the `NowLoadingTask`'s
+  `roading_loop` animation, which is never told to stop; the check itself
+  was not found.
+
+**Decision:**
+
+* `[display] frame_rate = 60` sets the timer and the flip threshold every
+  frame to 60, and to 30 while the `NowLoadingTask` is in state 2, 3 or 5
+  (fork patch 0041). No game code is patched, so native code stays on.
+* The default stays 30 until the owner has played at 60.
+
+**Rejected:**
+
+* A fixed 1/30 s step at 60 fps: the loader works, but the game runs at
+  double speed.
+* Finding and patching the loader's check: not found after following it
+  through the update, the loading task and its animation player; a code
+  patch would also take the eboot off native code unless the recompiled
+  module carried it.
+
+**Consequences:**
+
+* Loading screens look as on the Vita (30 fps); everything else runs at
+  60, as far as the GPU allows (54–57 fps on the Radeon 760M).
+* If another screen depends on the frame time the same way, it hangs at 60
+  in a way the scripted checks didn't reach; switching back to 30 is the
+  workaround.

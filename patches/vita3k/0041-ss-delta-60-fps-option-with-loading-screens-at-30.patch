@@ -1,0 +1,162 @@
+From a9185472fc3fe413facf7579552b78243ba031cc Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 14:49:37 +0200
+Subject: [PATCH] ss-delta: 60 fps option, with loading screens at 30
+
+- [display] frame_rate = 30 | 60 (default 30) replaces the [debug] frame_rate study keys
+- the frame timer and display flip threshold are set every frame: 60, but 30 while the
+  NowLoadingTask's state is 2, 3 or 5. At 60 the quest-start loading screen never ends: its
+  "roading_loop" animation is never told to stop (it does end at 60 with the game's fixed
+  1/30 s time step, so a check on the frame time in the loader is the cause). States 6 and 4
+  (after a quest) stay at 60
+- game logic steps by the measured frame time: an idle boss fight lasts as long at 60 as at 30
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/main.cpp     | 48 ++++++++++++++++++++++--------------
+ vita3k/ss-delta/settings.cpp | 11 +++++++--
+ vita3k/ss-delta/settings.h   |  3 +--
+ 3 files changed, 39 insertions(+), 23 deletions(-)
+
+diff --git a/vita3k/ss-delta/main.cpp b/vita3k/ss-delta/main.cpp
+index 1511d023..4e7a9497 100644
+--- a/vita3k/ss-delta/main.cpp
++++ b/vita3k/ss-delta/main.cpp
+@@ -225,30 +225,41 @@ void unscale_depth_uvs(SceGxmProgram &program) {
+     LOG_INFO_IF(replaced, "full_3d: depth UV scale set to 1.0 in a {} shader", program.is_vertex() ? "vertex" : "fragment");
+ }
+ 
+-// The 60 fps study (docs/03-plan.md Phase 8): the game paces its main loop with a frame timer
++// The frame rate (docs/03-plan.md, 60 fps): the game paces its main loop with a frame timer
+ // created for 30 fps (0x812ab888: movs r0, #30), whose period in microseconds is the first u64 of
+ // the timer object (*(*0x81c957cc)), and flips every 2nd vblank (threshold at 0x81d3a630). Both
+-// are data, so they are changed in guest memory once the game has set them up.
+-// Returns true when done.
+-bool apply_frame_rate(EmuEnvState &emuenv, int fps) {
++// are data, so they are changed in guest memory once the game has set them up. Game logic steps
++// by the measured frame time, so it keeps its speed at 60 fps, but the loading screen does not
++// finish with frames shorter than about 1/45 s: its "roading_loop" animation never gets told to
++// stop. So loading screens run at 30 fps: the NowLoadingTask singleton (*0x81c9603c) shows one
++// while its state (+0xa4) is 2, 3 or 5 (opening, "roading_loop", "roading_end"; 0x812b58ec). After
++// a quest it plays the loop backwards (6) and rests in 4 until reset, so those stay at 60.
++// Called every frame; returns the rate it set (0: not yet).
++int update_frame_rate(EmuEnvState &emuenv, int fps, int current) {
+     auto &mem = emuenv.mem;
+     const auto u32 = [&](Address a) -> uint32_t * { return is_valid_addr(mem, a) ? Ptr<uint32_t>(a).get(mem) : nullptr; };
+     uint32_t *const holder = u32(0x81c957cc);
+     if (!holder || !*holder)
+-        return false;
++        return 0;
+     uint32_t *const timer = u32(*holder);
+-    if (!timer || !*timer || !is_valid_addr(mem, *timer + 7))
+-        return false;
+-    uint64_t *const period = Ptr<uint64_t>(*timer).get(mem);
+     uint32_t *const flip = u32(0x81d3a630);
+-    if (*period != 1000000 / 30 || !flip || *flip != 2) {
+-        LOG_WARN("frame_rate: unexpected frame timer {} us / flip threshold {}; left alone", *period, flip ? *flip : 0);
+-        return true;
++    if (!timer || !*timer || !is_valid_addr(mem, *timer + 7) || !flip)
++        return 0;
++    uint64_t *const period = Ptr<uint64_t>(*timer).get(mem);
++    const uint32_t *const loading_task = u32(0x81c9603c);
++    const uint32_t *const loading_state = loading_task && *loading_task ? u32(*loading_task + 0xa4) : nullptr;
++    const uint32_t state = loading_state ? *loading_state : 0;
++    const int want = state == 2 || state == 3 || state == 5 ? 30 : fps;
++    if (want == current && *period == 1000000u / want)
++        return current;
++    if ((*period != 1000000u / 30 && *period != 1000000u / fps) || (*flip != 2 && *flip != 60u / fps)) {
++        LOG_WARN("frame_rate: unexpected frame timer {} us / flip threshold {}; left alone", *period, *flip);
++        return -1;
+     }
+-    *period = 1000000 / fps;
+-    *flip = 60 / fps;
+-    LOG_INFO("frame_rate: {} fps (frame timer {} us, flip every {} vblank)", fps, *period, *flip);
+-    return true;
++    *period = 1000000 / want;
++    *flip = 60 / want;
++    LOG_INFO("frame_rate: {} fps{} (loading state {}, frame timer {} us, flip every {} vblank)", want, want != fps ? " for a loading screen" : "", state, *period, *flip);
++    return want;
+ }
+ 
+ } // namespace
+@@ -595,7 +606,7 @@ int main(int argc, char *argv[]) {
+         }
+     };
+     const auto session_start = std::chrono::steady_clock::now();
+-    bool frame_rate_pending = settings.frame_rate != 30;
++    int frame_rate = 30; // what update_frame_rate last set (-1: left alone)
+     hooks.on_tick = [&] {
+         if (dump_elfs_seconds > 0 && std::chrono::steady_clock::now() - session_start > std::chrono::duration<double>(dump_elfs_seconds)) {
+             // --dump-elfs: the modules the game loads at boot are written. Ad Hoc Play's matching
+@@ -608,9 +619,8 @@ int main(int argc, char *argv[]) {
+             SDL_PushEvent(&quit);
+             dump_elfs_seconds = 0;
+         }
+-        if (frame_rate_pending && std::chrono::steady_clock::now() - session_start > std::chrono::seconds(settings.frame_rate_delay)
+-            && apply_frame_rate(emuenv, settings.frame_rate))
+-            frame_rate_pending = false;
++        if (settings.frame_rate != 30 && frame_rate != -1)
++            frame_rate = update_frame_rate(emuenv, settings.frame_rate, frame_rate);
+         // [touch] bindings and the test driver's fingers
+         touches.update(emuenv, keyboard);
+         // screenshots the test driver asked for through the input pipe
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index dfae9873..23a269ee 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -53,6 +53,9 @@ window_scale = 1
+ ; ss-delta/screenshots/ next to ss-delta.exe.
+ fullscreen = false
+ vsync = true
++; The game's frame rate: 30 (as on the Vita) or 60. The game keeps its speed at 60; loading
++; screens still run at 30 (they don't finish at 60).
++frame_rate = 30
+ ; How the picture is scaled to the window: Bilinear, Nearest, Bicubic, FXAA, FSR.
+ filter = Bilinear
+ 
+@@ -242,6 +245,12 @@ Settings load_settings(const fs::path &dir, int player) {
+     get_number("display.window_scale", out.window_scale, 1, 4);
+     get_bool("display.fullscreen", out.fullscreen);
+     get_bool("display.vsync", out.vsync);
++    if (const auto v = get("display.frame_rate")) {
++        if (*v == "30" || *v == "60")
++            out.frame_rate = std::stoi(*v);
++        else
++            out.warnings.push_back("display.frame_rate = " + *v);
++    }
+     if (const auto v = get("display.filter")) {
+         static const std::vector<std::string> filters{ "Bilinear", "Nearest", "Bicubic", "FXAA", "FSR" };
+         const auto it = std::find_if(filters.begin(), filters.end(), [&](const std::string &f) {
+@@ -273,8 +282,6 @@ Settings load_settings(const fs::path &dir, int player) {
+             out.warnings.push_back("debug.log_level = " + *v);
+     }
+     get_bool("debug.validation_layer", out.validation_layer);
+-    get_number("debug.frame_rate", out.frame_rate, 30, 60);
+-    get_number("debug.frame_rate_delay", out.frame_rate_delay, 0, 3600);
+     std::map<std::string, Settings::TouchBinding> touches;
+     for (const auto &[key, value] : values) {
+         if (key.starts_with("keyboard."))
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index c6f64d5b..77b8e387 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -36,6 +36,7 @@ struct Settings {
+     int window_scale = 1; // window size as a multiple of 960x544
+     bool fullscreen = false;
+     bool vsync = true;
++    int frame_rate = 30; // 30 or 60: the game's frame timer and display flip rate (main.cpp update_frame_rate)
+     std::string filter = "Bilinear";
+     // [audio]
+     int volume = 100;
+@@ -51,8 +52,6 @@ struct Settings {
+     // [debug]
+     int log_level = 2; // spdlog: 0 trace ... 6 off
+     bool validation_layer = false;
+-    int frame_rate = 30; // the game's frame timer and display flip rate (study: 30 or 60)
+-    int frame_rate_delay = 0; // seconds after start before frame_rate applies (study)
+ 
+     // [keyboard] and [gamepad]: Vita button -> keys / gamepad button, applied by input.cpp
+     std::map<std::string, std::string> keyboard, gamepad;
+-- 
+2.56.0.windows.2
+

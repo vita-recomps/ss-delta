@@ -1078,6 +1078,76 @@ render resolution before and after the walk.
   loading at 30 and gameplay at 60), then compare gameplay timings against
   30 fps.
 
+### 60 fps: the loading screen, and loading at 30 (2026-10-13)
+
+Followed up on the owner's request (Phase 8 item, plan). Quest start of
+ST03A from Stage Select, `ss-delta.exe`, all modules native unless noted.
+
+**Not a frame budget.** At 60 fps the quest-start screen (the white swirl)
+never ends, but a stack dump at that point (`tools/stackdump.py`, native
+frames mapped to guest functions through the module's function table) shows
+the main thread sleeping in the main loop (`0x812ac142`), the file threads
+idle and two job threads polling (`0x812d4e68`). Nothing is blocked; a
+condition just never comes true.
+
+| Run at the quest start | Result |
+|---|---|
+| `frame_rate` 50 (48.9 fps) | stuck |
+| `frame_rate` 40 (39.1 fps) | loads, plays |
+| 60, the game's fixed 1/30 s step on (`*0x81c9a488 + 5`) | loads (gameplay then runs double speed) |
+| 60 on the JIT, the main loop's update call (`0x812ac0bc`) sent to the fixed-step path `0x812ac74c` (patch) | loads |
+| the same with the patch rewriting that call to its own target (control) | stuck |
+
+So the stall comes from the frame time handed to the game update (stored
+in `0x81d0a150`, read by the per-frame job loops `0x812d4d88`/`0x812d4dc8`),
+somewhere in a check that fails when a frame is shorter than about 1/45 s.
+
+**The loading screen.** `NowLoadingTask` (singleton `*0x81c9603c`, vtable
+`0x81c5ef6c`, update `0x812b58ec`) runs a state machine at `+0xa4`:
+
+* 2: plays the opening animation, then starts `roading_loop` (sic, a looping
+  UI animation, frames 90–169) → 3;
+* 3: when that animation reports finished (`0x81844266`: frame ≥ end)
+  starts `roading_end` → 5;
+* 5: when that finishes → 0 (idle). The only other writer of 0 is the reset
+  `0x812b4d80`, called from several places.
+* 6 / 4: after a quest the loop plays backwards (6) and the task rests in 4
+  until reset.
+
+The animation player (`0x81843d18`) advances `frame += dt × 30 × speed`. At
+30 fps the loop flag (`+0x294` bit 2) is cleared about half a second into
+state 3, the animation runs to its end and the task moves on. At 60 fps the
+flag is never cleared: the loop runs forever (probed for 3 loops). What
+clears it was not found (not the animation's own code, nor its keyframe
+events, which are sound cues). **Hypothesis:** the loader's "done" signal
+is the frame-time-dependent check above.
+
+**The fix (fork patch 0041).** `[display] frame_rate = 60` sets the frame
+timer and flip threshold every frame: 60, but 30 while the loading task is
+in state 2, 3 or 5. The first version used "state ≠ 0" and stayed at 30
+after leaving a quest (state 4); states 6 and 4 now stay at 60.
+
+**Checks at 60 (Radeon 760M, `full_3d`, scale 1):**
+
+* Gameplay timing: the Phase 9 idle fight (b0514, ST23B) 5× at 30 and 5×
+  at 60, alternating. Loading 18.7 s in all ten (the loading screen runs at
+  30). Player down 24.7 s after play at 30 (19.9–33.0) and 26.0 s at 60
+  (17.6–34.2), the same spread as in the native/JIT comparison. Fights at
+  56.3–56.9 fps.
+* All 50 map IDs from Stage Select (`build/maps-60/`): every quest that
+  starts at 30 starts at 60 and renders the same; all still running. ST17A
+  doesn't start from Stage Select, ST17C's dragon kills the idle player
+  before the shots, as at 30. Gameplay 54–57 fps on this GPU; one ST22A shot
+  caught a white boss flash that a rerun didn't repeat.
+* Player 3 on the 100% save: title, load, hub (57 fps), Librom's dialogue,
+  the journal (56 fps), Mad Chronicle, a story chapter's book pages, its
+  quest started from the journal ("Now Loading" at 30, tips, Press Any
+  Button), the quest (54–57 fps), Exit Quest, results, the save prompt (No),
+  back through the journal to the hub (58 fps).
+* Not checked: audio against cutscenes, Havok physics in detail, every
+  animation; the owner's playtest decides. The option stays off (30) by
+  default.
+
 ## ST03A water: a dark patch during the opening fly-through (2026-10-11, fixed)
 
 Seen by the user: early in ST03A's opening camera fly-through, a dark,

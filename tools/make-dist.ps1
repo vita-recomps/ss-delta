@@ -53,10 +53,12 @@ ss-delta.ini; default: the fs folder next to this file), with the game's code
 recompiled to native code (ssd_aot_*.dll, built from your own dump).
 
 Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
-Alt+Enter while playing), filter, volume, keyboard and gamepad bindings. The
-mouse is the touchscreen: left button front, right button rear. The Black
-Rite icon (touch and hold) is also on F and the gamepad's left trigger
-([touch] in ss-delta.ini). F12 saves a screenshot to ss-delta\screenshots.
+Alt+Enter while playing), filter, frame rate (frame_rate = 60 under
+[display]: 60 fps, loading screens stay at 30), volume, keyboard and
+gamepad bindings. The mouse is the touchscreen: left button front, right
+button rear. The Black Rite icon (touch and hold) is also on F and the
+gamepad's left trigger ([touch] in ss-delta.ini). F12 saves a screenshot to
+ss-delta\screenshots.
 
 The add-ons (raiments, hoods, additional pacts) are unlocked: their content
 is in the game since update 1.30, and ss-delta.exe records them in your save
