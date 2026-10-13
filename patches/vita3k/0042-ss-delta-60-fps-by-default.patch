@@ -1,0 +1,46 @@
+From 77904d5e1febe0ccafa12be31375fb6e1edc3c10 Mon Sep 17 00:00:00 2001
+From: alex <49746433+Master-Yoba@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 16:10:54 +0200
+Subject: [PATCH] ss-delta: 60 fps by default
+
+- the default ss-delta.ini lists [display] frame_rate = 60 (and 60 applies when the key is
+  missing); 30 stays available. The owner played at 60, single and Ad Hoc Play, without issues
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ vita3k/ss-delta/settings.cpp | 4 ++--
+ vita3k/ss-delta/settings.h   | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/vita3k/ss-delta/settings.cpp b/vita3k/ss-delta/settings.cpp
+index 23a269ee..0573b98a 100644
+--- a/vita3k/ss-delta/settings.cpp
++++ b/vita3k/ss-delta/settings.cpp
+@@ -53,9 +53,9 @@ window_scale = 1
+ ; ss-delta/screenshots/ next to ss-delta.exe.
+ fullscreen = false
+ vsync = true
+-; The game's frame rate: 30 (as on the Vita) or 60. The game keeps its speed at 60; loading
++; The game's frame rate: 60, or 30 as on the Vita. The game keeps its speed at 60; loading
+ ; screens still run at 30 (they don't finish at 60).
+-frame_rate = 30
++frame_rate = 60
+ ; How the picture is scaled to the window: Bilinear, Nearest, Bicubic, FXAA, FSR.
+ filter = Bilinear
+ 
+diff --git a/vita3k/ss-delta/settings.h b/vita3k/ss-delta/settings.h
+index 77b8e387..2196f9f5 100644
+--- a/vita3k/ss-delta/settings.h
++++ b/vita3k/ss-delta/settings.h
+@@ -36,7 +36,7 @@ struct Settings {
+     int window_scale = 1; // window size as a multiple of 960x544
+     bool fullscreen = false;
+     bool vsync = true;
+-    int frame_rate = 30; // 30 or 60: the game's frame timer and display flip rate (main.cpp update_frame_rate)
++    int frame_rate = 60; // 60 or 30: the game's frame timer and display flip rate (main.cpp update_frame_rate)
+     std::string filter = "Bilinear";
+     // [audio]
+     int volume = 100;
+-- 
+2.56.0.windows.2
+

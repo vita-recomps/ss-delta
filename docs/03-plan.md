@@ -513,8 +513,10 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
     the loader; its loop animation is never told to stop), so loading
     screens run at 30 (the `NowLoadingTask` in state 2, 3 or 5).
   * Checked: all 50 maps, the fight timing, title → hub → journal → story
-    quest → results → hub. Default stays 30; ☐ the owner's playtest
-    (feel, audio against cutscenes) decides whether 60 becomes the default.
+    quest → results → hub.
+  * ☑ The owner played at 60, alone and in Ad Hoc Play, without issues
+    (2026-10-13): 60 is the default since patch 0042, written explicitly
+    in the default `ss-delta.ini` (`frame_rate = 30` for the Vita's rate).
 * ☑ **Saves.**
   * ☑ Stored on the PC, in the Vita file system folder.
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`

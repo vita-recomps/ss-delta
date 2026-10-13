@@ -576,6 +576,9 @@ no third-party save is shipped or needed.
   frame to 60, and to 30 while the `NowLoadingTask` is in state 2, 3 or 5
   (fork patch 0041). No game code is patched, so native code stays on.
 * The default stays 30 until the owner has played at 60.
+* Update (2026-10-13): the owner played at 60, alone and in Ad Hoc Play,
+  without issues. 60 is the default (patch 0042), listed explicitly in the
+  default `ss-delta.ini`; `frame_rate = 30` gives the Vita's rate.
 
 **Rejected:**
 
