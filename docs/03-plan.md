@@ -67,9 +67,8 @@ first.
   offset) was the cloak speckle. Patch 0004 repacks any stream Vulkan
   can't fetch in place. The cloak is now correct on AMD, which Plus doesn't
   manage, and the validation layer reports no misalignment.
-* ☐ Retest our fork on the RTX 4090. Does patch 0003 also fix the white
-  Walhalla floor there? **Deferred** by the owner with the NVIDIA floor
-  (2026-10-12).
+* ☑ Retest our fork on the RTX 4090. Patch 0003 doesn't fix the white
+  Walhalla floor there; patch 0039 does (2026-10-12, below).
 * ☑ Vita3K-Plus.
   * ☑ The v1.2 binary boots on Vulkan here and fixes the black blocks and
     white floors ([02-baseline](02-baseline.md#vita3k-plus-v12-2026-10-09)).
@@ -124,9 +123,17 @@ Carried over (not blocking Phase 2):
     accuracy. The floor shader itself computes white on NVIDIA.
     * Lead: fp32 denormals. The translator packs f16 pairs into floats;
       NVIDIA can't preserve fp32 denormals, AMD does.
-  * ⏸ **On hold** until direct NVIDIA access. Then: confirm with RenderDoc
-    or shader edits on the 4090, and try keeping packed f16 pairs in
-    `uint` registers. Debug toggles are on fork branch `debug/floor`.
+  * ☑ Debugged on the RTX 4090 (2026-10-12): not denormals. A NaN in the
+    vertex shader's height-fog clamp (`VMIN`/`VMAX`): NVIDIA returns 0, AMD
+    the other operand. Fixed by patch 0039 (NaN-ignoring min/max, shader
+    cache version 16); the floor is textured on the 4090
+    ([02-baseline](02-baseline.md#the-white-floor-is-a-nan-in-minmax-rtx-4090-2026-10-12)).
+  * ☐ Recheck the arena and the field on the Radeon 760M with patch 0039.
+  * ☑ Full map sweep on the RTX 4090 with patch 0039 (`full_3d` + scale 2):
+    all 50 map IDs as on AMD, 29.3–29.6 fps
+    ([02-baseline](02-baseline.md#rtx-4090-map-sweep-2026-10-12)).
+  * ◐ HDR: no HDR output (SDR swapchain, owner chose no HDR mode). Visual
+    check on the HDR desktop, windowed and fullscreen, by the owner.
 * ☑ Zero-init experiment: done on AMD, with no effect. The cause was
   elsewhere.
 * porting Plus's two fixes for this game (`98a65bff`, `d248beee`). They

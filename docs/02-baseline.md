@@ -601,6 +601,85 @@ straightforward debugging.
 version 15).** The floor is **still white** on the RTX 4090 (owner); the
 same package draws it textured on the Radeon 760M.
 
+### The white floor is a NaN in min/max (RTX 4090, 2026-10-12)
+
+Debugged directly on the RTX 4090 (driver 617.42) with our fork (Vita3K.exe,
+JIT, Vulkan), by editing the cached SPIR-V of the floor's shaders: decompiled
+with SPIRV-Cross, recompiled with glslang (`-e main_fs`/`main_vs
+--source-entrypoint main`: Vita3K looks the entry points up by those names).
+The post-processing pass changes colours, so values were read out either as
+0/1 flags or bit by bit (32 black/white stripes per word).
+
+**Ruled out on the 4090:**
+* The denormal lead. Rewriting the floor shader's two denormal packed-half
+  constants (`sa[5].y`, `sa[6].x`) as normal floats with the same low halves
+  changes nothing, and packing a value into a float register and reading it
+  back gives the same bits.
+* Textures. Albedo samples correctly (the checkerboard shows when output
+  directly); the lightmap and its UVs look plausible.
+* Mapped guest memory: `memory-mapping: disabled` is white too.
+
+**Cause.** The floor fragment shader `9a8f3eb3` computes
+`lit = … + (1 − t)·sa3` with `sa3 = 1` and `t = v_TexCoord7.x`, then
+`pow(lit, 0.556)`. On the 4090 `t` is **0**, which adds a full 1.0 of light.
+`t` comes from the vertex shader `9ecd8510`'s height fog,
+`t = pow(clamp(sa11.x − y·sa11.y, 0, 1), sa21.z)`, with
+`sa11.y = 1/(0 − sa21.y)` and `sa11.x = sa21.x·sa11.y`. The arena's
+`sa21 = (≈ −1000, 0, 0.86, 0)`: the fog range is 0, so `sa11.y = +∞`,
+`sa11.x = −∞`, and on the floor (y = 0) the fog factor is
+`0·(−∞) + (−∞)` = **NaN**. The clamp is two USSE ops, `VMIN` then `VMAX`.
+* The translator emitted them as `FMin`/`FMax`, whose result for a NaN
+  operand is undefined. NVIDIA returns 0 (it treats the pair as a saturate),
+  so `t = 0` and the floor is white.
+* AMD Vulkan returns the other operand (IEEE minNum/maxNum): `min(NaN, 1) = 1`,
+  `t = 1`, textured floor. **Hypothesis:** the Vita's USSE does the same; it
+  is the only reading that matches the textured floor.
+* Forcing NaN-ignoring min/max in the vertex shader by hand makes the floor
+  textured on the 4090, matching the AMD screenshots.
+
+**Fix: fork patch 0039.** `VMIN`/`VMAX`/`VF16MIN`/`VF16MAX` and the SOP
+blend `FMIN`/`FMAX` return the other operand when one is NaN, tested on the
+bits (`(bits & 0x7FFFFFFF) > 0x7F800000`). `NMin`/`NMax` was tried first and
+is not enough: NVIDIA still returns 0 with them, also with the
+`SignedZeroInfNanPreserve 32` execution mode added. Shader cache version
+16 (`vk16-*.spv`).
+* RTX 4090, Vulkan: arena floor textured (white share of the floor region
+  99.8 % → 10.7 %); `ELDER DEFAULT MAP` unchanged and matches the AMD
+  screenshot `fix4-vk-elder.png`.
+* RTX 4090, OpenGL: the floor is no longer white but flat grey-green; the
+  OpenGL backend has its other known problems and isn't our renderer (D4).
+* AMD: to recheck on the mini PC. The change should be a no-op there.
+
+### RTX 4090 map sweep (2026-10-12)
+
+`tools/map-sweep.ps1 -Frames` over all 50 map IDs (`build/maps-4090/`), in
+`ss-delta.exe` with patch 0039, all nine modules native (NativeCPU),
+`full_3d` + scale 2 (1920×1088), Vulkan on the RTX 4090 (driver 617.42),
+the same steps as the Phase 7/8 sweeps on the Radeon 760M.
+
+* **Frame rate:** 29.3–29.6 fps mean on every map, one-second minimums
+  26–29 (the Radeon at the same settings: 23–29). Every run was still
+  going at the end.
+* **Rendering:** every map that starts renders as on AMD: fog, skies,
+  rain and snow, bloom, lava, water, shadows, the HUD and the Mind's Eye
+  outlines. No white or black surfaces. The Walhalla arena (ST21A in a
+  normal quest) has its textured floor.
+* **As on AMD:** ST17A doesn't start from Stage Select; on boss maps
+  (ST13B, ST14B, ST17C, ST22C, ST23A) the idle player is killed early, after
+  the shots that show the map; `LEVEL_TEST_00GA` has its dark horizon band.
+* ST02C's upward shots are a bright golden haze behind the tentacle
+  pillars, textured and fogged. **Hypothesis:** intended; compare with the
+  AMD sweep shots side by side.
+
+**HDR.** The port has no HDR output: the Vulkan swapchain is 8-bit
+`SRGB_NONLINEAR` (`screen_renderer.cpp`), as on the Vita. With Windows HDR
+on (here: LG ULTRAGEAR, 10 bpc, SDR content brightness 240 nits), Windows
+composites the window as SDR content at that brightness. HDR output
+(an HDR10/scRGB swapchain, inverse tone mapping) is not planned (owner,
+2026-10-12). The sweep above ran on that HDR desktop. Whether the picture
+looks right on the panel, windowed and fullscreen, is for the owner to
+judge by eye: screenshots capture the SDR image before Windows converts it.
+
 **Intermittent guest fault (2026-10-10).** One arena run of the patched
 build stopped after a guest invalid read at PC `0x8180cc02` (a load
 through `r1 = 0x90c12bc8`). It didn't reproduce in the next 3 runs, and no
