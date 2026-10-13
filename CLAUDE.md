@@ -85,8 +85,9 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
   `Vita3K.exe` in `build/vita3k/bin/RelWithDebInfo/`. It reads
   `ss-delta.ini` there (set `vita_fs` and `recompiled` for this machine)
   and logs to `ss-delta/vita3k.log`. Drive it with
-  `python -I third_party/recomp/tools/v3kdrive.py <bin dir> start`, then
-  `run`/`close` as for Vita3K.
+  `python -I third_party/recomp/tools/v3kdrive.py <bin dir> --exe ss-delta.exe start`
+  (the build folder also holds `shinobido2.exe`, so `--exe` is needed
+  there; a `dist/` folder has one exe), then `run`/`close` as for Vita3K.
   `python -I third_party/recomp/tools/make-dist.py --project . [--vita-fs <fs>] [--name x]`
   lays out a self-contained folder in `dist/` (ignored; it holds the
   game-derived `ssd_aot_*.dll`; the ini comes from `ss-delta.exe

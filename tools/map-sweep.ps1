@@ -45,11 +45,11 @@ foreach ($line in Get-Content $List) {
 
     python -I $drive $install bootseq PCSA00152 'Quest Select' | Out-Null
     try {
-        python -I $drive $Bin start | Out-Null
-        python -I $drive $Bin run ($steps -join ',') "$OutDir/$map-fps.csv" | Out-Null
+        python -I $drive $Bin --exe ss-delta.exe start | Out-Null
+        python -I $drive $Bin --exe ss-delta.exe run ($steps -join ',') "$OutDir/$map-fps.csv" | Out-Null
         # still running at the end of the steps? (a crash or a hang that closes the window shows here)
         $alive = [bool](Get-Process ss-delta -ErrorAction SilentlyContinue)
-        python -I $drive $Bin close | Out-Null
+        python -I $drive $Bin --exe ss-delta.exe close | Out-Null
     } finally {
         python -I $drive $install bootseq PCSA00152 Title | Out-Null
     }
