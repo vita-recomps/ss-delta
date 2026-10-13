@@ -39,21 +39,21 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
   It rewrites the installed `resource/config.ini` (backup `config.ini.orig`):
   set it back to `Title` afterwards.
 - Shared toolchain ([D17](docs/decisions.md)): two git submodules, shared
-  with `<utakata>`, whose hubs are bare repositories in `<git>\` until
-  they are published (`git -c protocol.file.allow=always submodule update
-  --init`). Commit and push changes inside a submodule to its hub first,
-  then commit the new submodule commit here.
+  with utakata (`<utakata>`, the Shinobido 2 port). Every repo's
+  `origin` is the owner's private Forgejo, `<private remote>/` (`ss-delta`, `utakata`,
+  `vita3k`, `vita-recomp-kit`; token in Windows Credential Manager).
+  Commit and push changes inside a submodule first, then commit the new
+  submodule commit here.
   * `third_party/vita3k`: our Vita3K fork ([D5](docs/decisions.md)), branch
-    `games` (hub `<git>/vita3k.git`, remote `hub`; `origin` is upstream
-    Vita3K, `plus` is Vita3K-Plus). `games` is the old `ss-delta` branch
+    `games` (`origin` is Forgejo's `vita3k`, `upstream` is Vita3K,
+    `plus` is Vita3K-Plus). `games` is the old `ss-delta` branch
     (patch 0042) plus the shared single-game frontend
     (`vita3k/game-frontend/`) and one executable per game
     (`vita3k/games/ss-delta/`, `vita3k/games/shinobido2/`). The patch
     series in `patches/vita3k/` stops at 0042 (historical); the submodule
     commit is the reference now. Its `external/cubeb` shows local changes
     in two rust submodules: leave them.
-  * `third_party/recomp`: `vita-recomp` (hub `<git>/vita-recomp.git`,
-    branch `main`): the recompiler (`recomp/`), the generic tools
+  * `third_party/recomp`: `vita-recomp-kit` (branch `main`): the recompiler (`recomp/`), the generic tools
     (`velf.py`, `vitaelf.py`, `inventory.py`, `imix.py`, `v3kdrive.py`,
     `sfo.py`, `stackdump.py`, ...) and the Python build, install and
     packaging scripts, which read `game.json`.

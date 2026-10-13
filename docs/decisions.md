@@ -647,6 +647,11 @@ no third-party save is shipped or needed.
 * The hubs are bare repositories in `<git>\` (`vita3k.git`,
   `vita-recomp.git`, `ss-delta.git`) until the owner publishes them; the
   submodule URLs change then.
+* Update (2026-10-13): the hubs moved to the owner's private Forgejo
+  (`vita3k`, `vita-recomp-kit`, `ss-delta`; the sibling is now called
+  utakata), with the history rewritten to the GitHub no-reply address
+  first, and MIT chosen for this repo (except `patches/vita3k/`, GPL) and
+  vita-recomp-kit (utakata's D6).
 * SSD's own tools stay here: `lspk.py`, `questmaps.py`, `map-sweep.ps1`,
   `package4090.ps1` with `pkg4090/`, `devshell.ps1`.
 

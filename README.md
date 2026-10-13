@@ -40,14 +40,13 @@ in Ad Hoc Play, on one PC (`--player 2`) or between PCs in a LAN.
 ## Toolchain
 
 The Vita3K fork and the recompiler are git submodules, shared with the
-sibling port of Shinobido 2 ([D17](docs/decisions.md)). Their hubs are
-local bare repositories in `<git>\` until they are published
-(`protocol.file.allow` lets git clone them):
+sibling port of Shinobido 2, utakata ([D17](docs/decisions.md)), and live
+on the owner's private Forgejo until they are published:
 
 * `third_party/vita3k`: our Vita3K fork, branch `games` (the single-game
   frontend `vita3k/game-frontend/` and one executable per game,
   `vita3k/games/ss-delta/` for `ss-delta.exe`);
-* `third_party/recomp`: `vita-recomp`, the recompiler (`recomp/`), the
+* `third_party/recomp`: `vita-recomp-kit`, the recompiler (`recomp/`), the
   generic tools and the build, install and packaging scripts. `game.json`
   describes this game to those scripts.
 
@@ -99,3 +98,9 @@ has its options):
 
 Python dependencies: `pyyaml`, `capstone`, `pycryptodome` (for SELF
 decryption).
+
+## Licence
+
+MIT ([LICENSE](LICENSE)), except `patches/vita3k/`, which are changes to
+Vita3K and, like it, under the GNU GPL version 2 or later. The Vita3K fork
+(`third_party/vita3k`) is GPL-2.0-or-later.

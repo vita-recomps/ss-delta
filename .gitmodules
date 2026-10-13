@@ -1,8 +1,8 @@
 [submodule "third_party/vita3k"]
 	path = third_party/vita3k
-	url = <git>/vita3k.git
+	url = ../vita3k
 	branch = games
 [submodule "third_party/recomp"]
 	path = third_party/recomp
-	url = <git>/vita-recomp.git
+	url = ../vita-recomp-kit
 	branch = main
