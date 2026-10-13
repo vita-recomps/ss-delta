@@ -124,7 +124,7 @@ scripted without focus.
 Carried over (not blocking Phase 2):
 * ☑ RTX 4090 round 2 (2026-10-10): 12/12 ok, 30 fps. The arena floor is
   still white on NVIDIA in every build.
-* ☑ White floor root-caused on the mini PC
+* ☑ White floor root-caused on the Radeon 760M test PC
   ([02-baseline](02-baseline.md#why-the-arena-floor-is-white-2026-10-10)).
   The MSAA depth texture missed the surface cache because of 32-row tile
   rounding. Fixed by patch 0006.
@@ -353,7 +353,7 @@ and ult, and a clean differential log. **Met** (2026-10-10).
 ## Phase 6 — Standalone runtime (L) ☑
 
 * ☑ A single-game executable: SDL3 window, no Qt GUI, no app list, fixed
-  config, and its own `ss-delta.ini` (like `decimation.ini`).
+  config, and its own `ss-delta.ini`.
   * ☑ `ss-delta.exe`, a target in the fork ([D10](decisions.md)), on
     upstream's SDL front end. It boots PCSA00152 directly with the fixed
     settings and `ss-delta.ini` (paths, scale, window, fullscreen with
@@ -546,7 +546,7 @@ sacrifice, a DLC quest cleared, audio. 60 fps stays deferred.
 
 Matrix: [06-compatibility](06-compatibility.md).
 
-* ☑ A compatibility matrix like decimation's: story, all quest types, Avalon
+* ☑ A compatibility matrix: story, all quest types, Avalon
   hub, sigils, Book (Librom) menus, FMV, audio, saves (2026-10-12). Two
   non-blocking ⚠️: the endings after the final battle (not reached; their
   movies and event mechanism checked) and the debug-only `BookEnding`.
@@ -560,8 +560,8 @@ Matrix: [06-compatibility](06-compatibility.md).
 ## Phase 10 — Ad hoc multiplayer (L) ☑
 
 The owner asked for it on 2026-10-12, after Phase 9. Ad Hoc Play (Librom →
-Network → Ad Hoc Play) between copies of the port. Unlike decimation's
-Phase 9, Vita3K already speaks ad hoc ([research](01-research.md#ad-hoc-play)):
+Network → Ad Hoc Play) between copies of the port. Unlike a PSP port,
+which needs its own ad hoc layer, Vita3K already speaks ad hoc ([research](01-research.md#ad-hoc-play)):
 the firmware's own matching module runs on the emulated Vita, over P2P
 sockets that Vita3K maps to UDP.
 
@@ -637,11 +637,11 @@ built without the JIT.
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
 | R1 | NEON/VFP semantics wrong (Havok physics, 17.7% of code) | desyncs, broken physics | differential testing vs. dynarmic per op and per function; bit-exact estimate tables |
-| R2 | Generated code too large to compile (3.8M instructions; flags) | slow builds, out of memory | flag liveness, 64 KB buckets, ccache, 3 jobs on 16 GB (decimation's figure) |
+| R2 | Generated code too large to compile (3.8M instructions; flags) | slow builds, out of memory | flag liveness, 64 KB buckets, ccache, 3 jobs on 16 GB |
 | R3 | Hidden control flow (`pop {pc}` dispatch, tail calls, mode switches) | crashes in native code | the dynarmic fallback catches misses; Phase 2 inventory |
 | R4 | Vita3K renderer bugs (Vulkan crash on AMD, overexposure, Mind's Eye) | unplayable or ugly | Phase 1 root cause; Vita3K-Plus fixes; Phase 7 |
 | R5 | Threads/ULT/callback integration with Vita3K's kernel | deadlocks, crashes | keep Vita3K's thread model in the hybrid; fibers only in Phase 6 |
 | R6 | Firmware modules (fonts, AvPlayer) are Sony code run as LLE | can't drop the PUP dependency | FFmpeg for FMV; pvf/ft2 recompiled locally or replaced |
 | R7 | Frame-locked game logic | no 60 fps | treat 60 fps as optional; logic steps by frame time, loading screens kept at 30 ([D16](decisions.md)) |
 | R8 | GPL (Vita3K) | the runtime can't be relicensed | private, non-distributed project ([D2](decisions.md)); keep the recompiler tool separate |
-| R9 | First Vita recomp: no prior art to copy | slower progress | borrow patterns from decimation (Yakumo fallback), N64Recomp/XenonRecomp (lookup tables), 3dsrecomp (verify mode) |
+| R9 | First Vita recomp: no prior art to copy | slower progress | borrow patterns from PSP recompilers (Yakumo's psprecomp fallback), N64Recomp/XenonRecomp (lookup tables), 3dsrecomp (verify mode) |

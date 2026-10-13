@@ -35,7 +35,7 @@ it needs no admin rights.
 -----------------------
 
 Round 1 on this PC showed upstream and Plus on Vulkan drawing the boss arena
-floor plain white. On the dev mini PC (Radeon 760M), our build now draws
+floor plain white. On the Radeon 760M dev PC, our build now draws
 both maps correctly on Vulkan: textured arena floor and a clean cloak.
 
 This round asks:

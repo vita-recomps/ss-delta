@@ -44,14 +44,16 @@ exactly what the dynarmic fallback is for.
 * licences (RIF/work.bin);
 * firmware.
 
-Hashes, addresses, names and notes are fine. This is the same rule as
-decimation D3.
+Hashes, addresses, names and notes are fine.
 
 **Consequences:**
 
 * Every build regenerates from the user's own dump and firmware.
 * The project stays private and non-distributed, which also keeps the GPL
-  question moot.
+  question moot. Update (2026-10-13): the repos are being prepared for
+  publishing ([D17](#d17--the-toolchain-is-shared-with-shinobido-2-through-git-submodules-accepted-2026-10-13)):
+  MIT for this repo, the fork GPL as Vita3K. This rule (no game data, ever)
+  is unchanged.
 
 ## D3 — Target the merged US 1.30 build (accepted, 2026-10-09)
 
@@ -90,7 +92,7 @@ GPU vendor. No combination is correct on both GPUs.
 * **Vulkan is the renderer to build on.** It is the only backend without
   gross errors on both vendors.
 * Comparisons use two references:
-  * Plus Vulkan on the mini PC;
+  * Plus Vulkan on the Radeon 760M test PC;
   * upstream or Plus Vulkan on the RTX 4090.
 * A difference between the two references is itself a bug signal, and
   points at undefined behaviour in shader translation (see
@@ -141,8 +143,7 @@ on Vulkan on the Radeon 760M. Measured against upstream:
 **Decision:**
 
 * Our fork starts from upstream `master`. It lives in `third_party/vita3k` as
-  a nested git clone (it is ~1 GB with submodules, too big to vendor as in
-  decimation D6), on branch `ss-delta`.
+  a nested git clone (it is ~1 GB with submodules, too big to vendor), on branch `ss-delta`.
 * Plus is a second remote (`plus`) in that clone. Its fixes come over as
   cherry-picks, one at a time, each tested against this game.
 * Our patch series is exported with `git format-patch` into
@@ -169,8 +170,8 @@ record up to 0042; the submodule commit is the reference from now on.
 
 ## D6 — The recompiler is a Python generator; runtime and tests are C++ (accepted, 2026-10-10)
 
-**Context:** Phase 3. Decimation used a C++ framework (Yakumo's psprecomp)
-because one existed for the PSP. Nothing comparable exists for ARMv7.
+**Context:** Phase 3. PSP recompilers use a C++ framework (Yakumo's
+psprecomp) because one exists for the PSP. Nothing comparable exists for ARMv7.
 `tools/inventory.py` already decodes every function in Python (Capstone,
 recursive descent, jump tables, IT blocks).
 
@@ -339,8 +340,7 @@ its libraries and leaving out `gui-qt`.
 
 * Settings the game needs are fixed in code: Vulkan, `high-accuracy`,
   surface sync on, `memory-mapping: double-buffer` (D4 update 4).
-* The player's choices are in `ss-delta.ini` next to the exe, like
-  `decimation.ini`. It is written with comments on first start.
+* The player's choices are in `ss-delta.ini` next to the exe. It is written with comments on first start.
 * Recompiled modules (`ssd_aot_*.dll`) are loaded from a configured folder
   unless `SSD_AOT` is set. The DLLs are generated locally and never
   shipped (D2).
@@ -536,8 +536,8 @@ no third-party save is shipped or needed.
   which Vita3K supports since late 2025: the module runs as LLE over P2P
   sockets, which Vita3K maps to UDP port 3658 + virtual port, and peers
   are found by a broadcast every second.
-* Decimation (D11 there) had to write its ad hoc layer and server; here
-  nothing of the kind is missing.
+* A PSP port has to write its own ad hoc layer and server; here nothing
+  of the kind is missing.
 * Two copies on one PC collide: both bind the same ports, and loopback has
   no broadcast. They also share a save, a config and the shader cache.
 
@@ -558,7 +558,7 @@ no third-party save is shipped or needed.
 
 **Rejected:**
 
-* An ad hoc server (PPSSPP's protocol, as in decimation): the Vita's ad
+* An ad hoc server (PPSSPP's protocol): the Vita's ad
   hoc needs none, and Vita3K builds on IP addresses directly.
 * A full copy of the Vita file system per player: gigabytes, and the users
   already separate the saves.
@@ -618,7 +618,7 @@ no third-party save is shipped or needed.
 
 **Context:**
 
-* The sibling port of Shinobido 2: Revenge of Zen (`<utakata>`)
+* The sibling port of Shinobido 2: Revenge of Zen (now utakata)
   reuses this project's Vita3K fork and recompiler. Its D4 splits them into
   publishable repos that both games use as submodules; its D6 says they are
   written as if public, for a later GitHub release. The owner considers
@@ -644,10 +644,10 @@ no third-party save is shipped or needed.
   README (`docs/dist-readme.txt`) and extra files (`run-player2.bat`). The
   ini comes from `ss-delta.exe --write-ini` instead of parsing
   `settings.cpp` (`tools/ssdelta_ini.py`).
-* The hubs are bare repositories in `<git>\` (`vita3k.git`,
+* The hubs are local bare repositories (`vita3k.git`,
   `vita-recomp.git`, `ss-delta.git`) until the owner publishes them; the
   submodule URLs change then.
-* Update (2026-10-13): the hubs moved to the owner's private Forgejo
+* Update (2026-10-13): the hubs moved to the owner's private git server
   (`vita3k`, `vita-recomp-kit`, `ss-delta`; the sibling is now called
   utakata), with the history rewritten to the GitHub no-reply address
   first, and MIT chosen for this repo (except `patches/vita3k/`, GPL) and

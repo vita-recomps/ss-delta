@@ -52,3 +52,6 @@ __pycache__/
 # patches/vita3k/.
 /third_party/vita3k-plus-src/
 /third_party/vita-headers/
+
+# Machine-specific notes for Claude Code (they import the private notes repo)
+CLAUDE.local.md

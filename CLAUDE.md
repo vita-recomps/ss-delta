@@ -2,9 +2,10 @@
 
 A static-recompilation PC port of Soul Sacrifice Delta (PS Vita, PCSA00152,
 1.30). Start with `README.md` and `docs/03-plan.md` to find the current phase.
-Sibling projects: `<psp-project>` (Dissidia 012, PSP), which has the same
-conventions, and `<utakata>` (Shinobido 2, PS Vita), which shares this
+Sibling project: utakata (Shinobido 2, PS Vita), which shares this
 project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
+`CLAUDE.local.md` (not committed) imports the owner's machine-specific
+notes, kept in a private repo.
 
 ## Hard rules
 
@@ -12,6 +13,8 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
   decrypted files, ELFs, generated C++, Ghidra databases, screenshots, logs,
   licences (`.rif`/`work.bin`), PUPs. Check `git status` before every commit.
   Hashes, addresses and notes are fine.
+- Never commit anything local either: no absolute paths, host names, user
+  or machine names, tokens. Those go in the private notes.
 - Treat `rom/` as read-only. Write to `extracted/`, `generated/` or `build/`.
 - Mark unverified claims in docs as **hypothesis**. Promote them only after
   checking against the binary or Vita3K.
@@ -28,7 +31,7 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
 - Portable Vita3K: `extracted/vita3k/` (`pref-path` = `fs/`). The installed
   game is in `fs/ux0/app/PCSA00152`. Firmware 3.74 is installed.
 - Vulkan is the renderer ([D4](docs/decisions.md) update 3). Our fork runs it
-  on this machine's Radeon 760M; the upstream release in `extracted/vita3k`
+  on the Radeon 760M test PC; the upstream release in `extracted/vita3k`
   still crashes there (AMD compiler bug, see `docs/02-baseline.md`), and so
   does Vita3K-Plus 1.2 since AMD driver 26.8.1 (use `OpenGL` for those two).
 - Our build keeps its own config, shader cache and log next to its exe
@@ -39,14 +42,12 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
   It rewrites the installed `resource/config.ini` (backup `config.ini.orig`):
   set it back to `Title` afterwards.
 - Shared toolchain ([D17](docs/decisions.md)): two git submodules, shared
-  with utakata (`<utakata>`, the Shinobido 2 port). Every repo's
-  `origin` is the owner's private Forgejo, `<private remote>/` (`ss-delta`, `utakata`,
-  `vita3k`, `vita-recomp-kit`; token in Windows Credential Manager).
-  Commit and push changes inside a submodule first, then commit the new
-  submodule commit here.
+  with utakata (the Shinobido 2 port). Their URLs in `.gitmodules` are
+  relative (`../vita3k`), so they resolve next to wherever this repo was
+  cloned from. Commit and push changes inside a submodule first, then
+  commit the new submodule commit here.
   * `third_party/vita3k`: our Vita3K fork ([D5](docs/decisions.md)), branch
-    `games` (`origin` is Forgejo's `vita3k`, `upstream` is Vita3K,
-    `plus` is Vita3K-Plus). `games` is the old `ss-delta` branch
+    `games` (`upstream` is Vita3K, `plus` is Vita3K-Plus). `games` is the old `ss-delta` branch
     (patch 0042) plus the shared single-game frontend
     (`vita3k/game-frontend/`) and one executable per game
     (`vita3k/games/ss-delta/`, `vita3k/games/shinobido2/`). The patch
@@ -111,8 +112,7 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
 - Ad Hoc Play tests: `ss-delta.exe --player N` (2-4) is another copy with
   Vita user N-1 (a copy of user 00's saves), `ss-delta/player<N>/` and the
   address 127.0.0.N; `v3kdrive.py ... --player N` drives it. Test as players
-  3 and 4: the owner plays players 1 and 2 (users 00 and 01, their own co-op
-  progress since 2026-10-12) from the shared `extracted/vita3k/fs`.
+  3 and 4 (the private notes say whose saves 00 and 01 are).
 - Game archives: `python -I tools/lspk.py list|extract <.../retail/archive> ...`
   (`archive_patch3` overrides `archive`). `tools/questmaps.py` turns
   `quest_param.csv` into the map list `tools/map-sweep.ps1` sweeps through
@@ -141,10 +141,8 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
 - Saves: the game has three slots, `datag000N.bin` + `SlotParam_N.bin`, and
   one shared `system.bin` (the add-on record). `ss-delta.exe --import-save
   <folder|zip> [--slot N] [--quiet]` / `--export-save <dir> [--slot N]`
-  (backups in `ss-delta/save-backups/`). The owner's install has their own
-  save in slot 1 and the story-complete Apollo save in slot 2 (owner's
-  request, 2026-10-11); load slot 2 for late-game tests instead of swapping
-  files. Older copies: `build/save-backup-*`.
+  (backups in `ss-delta/save-backups/`). Which slot holds what in the
+  owner's install is in the private notes.
 - `third_party/recomp/recomp/run-tests.ps1 -Root .` runs the test binaries
   under a memory and time ceiling (`recomp/tests/guarded-run.ps1` there).
   Keep new heavy steps guarded too: a runaway test once hung the machine
@@ -161,9 +159,6 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
 - In Bash heredocs, backslash escapes inside Python strings get mangled. Use
   the Edit tool, or build backslashes with `chr(92)`, for strings containing
   `\`.
-- GitHub connections from this machine stall intermittently. Use
-  `timeout` plus `-c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30` and
-  retry; codeload.github.com tarballs are reliable.
 - `v3kdrive.py` never takes keyboard focus. Don't add focus-stealing
   input without asking.
 

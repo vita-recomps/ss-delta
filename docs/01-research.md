@@ -53,8 +53,9 @@ Sources are marked:
   * This is the Vita version of what Yakumo's interpreter fallback gave us on
     the PSP.
 * **Licence consequence:** Vita3K is GPL-2.0-or-later, so the runtime becomes
-  GPL. That is irrelevant for a private, non-distributed build like
-  decimation. It matters only if we ever publish code.
+  GPL. That is irrelevant for a private, non-distributed build. It
+  matters only if we ever publish code (we do now: the fork is published as
+  GPL, D17).
 
 ## What's in the dump [local]
 
@@ -453,8 +454,7 @@ fixes specific to Delta: outlines, floor textures and Mind's Eye in v1.0.
 
 * Vita3K's GXM path is good enough to play this game, but surface-sync
   (render-to-texture readback) is where its remaining bugs are.
-* The same pattern bit us on the PSP: framebuffer→texture effects, decimation
-  R5.
+* The same pattern is known from PSP emulation: framebuffer→texture effects.
 
 ### Other
 
@@ -487,7 +487,7 @@ fixes specific to Delta: outlines, floor textures and Mind's Eye in v1.0.
 
 | Component | Where | Size | Reuse for a recomp runtime |
 |---|---|---|---|
-| Memory | `vita3k/mem` | ~1.8k lines | Flat 4 GiB host reservation, guest ptr = `base + addr`. This is exactly what generated code wants (decimation uses the same model). Fault handler does write-tracking for the texture cache |
+| Memory | `vita3k/mem` | ~1.8k lines | Flat 4 GiB host reservation, guest ptr = `base + addr`. This is exactly what generated code wants (static recompilers commonly use the same model). Fault handler does write-tracking for the texture cache |
 | CPU | `vita3k/cpu` | ~1.3k lines | dynarmic only, a JIT per guest thread. Behind an interface (`cpu/impl/interface.h`) that we can extend with an AOT dispatch table |
 | Kernel | `vita3k/kernel` | ~6k lines | **One host thread per guest thread** (SDL threads), host mutex/condvar sync objects. Callbacks into guest code go through `run_callback`/`run_guest_function` (GXM display queue, threads, AvPlayer), which must call recompiled functions instead |
 | Loader | `kernel/src/load_self.cpp`, `relocation.cpp` | 863 + 704 lines | SCE ELF loading, imports patched to `svc #0; bx lr; .word NID` (HLE) or to LLE exports. A dump option writes relocated ELFs |
@@ -555,7 +555,7 @@ hardware.
 | Option | What | Effort (loktar's estimates, 1 dev) | Verdict |
 |---|---|---|---|
 | A. Emulator wrapper | Ship Vita3K with fixed settings and patches (resolution via VitaGrafix-style patch, input) | 1–2 months | Works today. Not a port, but a useful baseline and oracle |
-| **B. Hybrid AOT in a Vita3K fork** | Recompile Thumb-2 → C++ ahead of time. Vita3K's CPU layer dispatches to native code by address and falls back to dynarmic on a miss. Keep Vita3K's HLE, GXM and renderer | 6–12 months to full coverage, useful at every step | **Recommended.** Same shape as decimation (recompiled code + fallback + reused HLE) |
+| **B. Hybrid AOT in a Vita3K fork** | Recompile Thumb-2 → C++ ahead of time. Vita3K's CPU layer dispatches to native code by address and falls back to dynarmic on a miss. Keep Vita3K's HLE, GXM and renderer | 6–12 months to full coverage, useful at every step | **Recommended.** Recompiled code + fallback + reused HLE |
 | C. Full static recomp, own runtime | Generated C++ only; port only the needed parts of Vita3K (GXM/renderer/shader) into our own runtime | 9–18 months | Where B should end up. Get there by deleting dynarmic once coverage is 100% |
 | D. Decompilation | — | years | Out of scope; B/C lets us replace functions one at a time later |
 
@@ -580,7 +580,7 @@ Why B first:
      dead flag stores.
    * Expect large generated sources: a compile-time and memory risk.
    * PSPRecomp output at 5 MB was already about 15 min and 4 GiB per job on
-     the mini PC.
+     the Radeon 760M test PC.
 3. **Hidden control flow.** Watch for `pop {pc}` used as dispatch, tail calls
    across exidx boundaries, and Thumb/ARM switches through pointers. The
    dynarmic fallback absorbs them.
@@ -625,8 +625,7 @@ Why B first:
 
 ## Workspace state
 
-All of this is outside git. Treat it like decimation's `extracted/`: never
-commit anything derived from the game.
+All of this is outside git: never commit anything derived from the game.
 
 | Path | What |
 |---|---|

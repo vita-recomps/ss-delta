@@ -1,12 +1,14 @@
 # ss-delta
 
-A personal research project: a native PC port of **Soul Sacrifice Delta**
-(PS Vita, PCSA00152, v1.30) by static recompilation, built from the owner's
-own dump. It is a sibling of `<psp-project>` (Dissidia 012, PSP).
+A native PC port of **Soul Sacrifice Delta** (PS Vita, US PCSA00152, v1.30)
+by static recompilation, built from the player's own dump. The game's code,
+and the firmware modules it loads, are recompiled ahead of time to C++ and
+run natively inside a fork of Vita3K, which supplies the rest of the
+console. Its sibling, utakata, ports Shinobido 2 with the same toolchain.
 
-> **Private and non-distributed.** This repository contains *no* game data,
-> *no* firmware and *no* code derived from the game. Everything is
-> regenerated locally from the user's own dump. See [D2](docs/decisions.md).
+> This repository contains *no* game data, *no* firmware and *no* code
+> derived from the game. You bring your own dump; everything game-derived is
+> generated locally from it. See [D2](docs/decisions.md).
 
 ## Status
 
@@ -37,23 +39,68 @@ Phase 9 (the compatibility pass, [06-compatibility](docs/06-compatibility.md))
 and Phase 10 (Ad Hoc Play) are done. Copies of `ss-delta.exe` play together
 in Ad Hoc Play, on one PC (`--player 2`) or between PCs in a LAN.
 
+## What you need
+
+* Windows 10 or 11, x64, a GPU with Vulkan.
+* Your own copy of the game, US version (PCSA00152) at **update 1.30**: a
+  decrypted dump (folder, `.zip` or `.vpk`, with the 1.30 patch merged),
+  or the PSN `.pkg` with its licence `work.bin` plus the 1.30 patch pkg.
+  The add-ons' content is part of 1.30.
+* The PS Vita firmware update files `PSVUPDAT.PUP` and `PSP2UPDAT.PUP` (as
+  for Vita3K; Sony publishes them).
+* To build: Git, Python 3.12 (`pip install capstone pyyaml`), Visual Studio
+  2022 or its Build Tools with "Desktop development with C++" (MSVC x64,
+  the Windows SDK, CMake and Ninja), Qt 6.11 for MSVC x64 (Vita3K's own
+  interface is built too; e.g. with `aqtinstall` into `C:\Qt`), and the
+  Vulkan SDK. These are Vita3K's build requirements.
+
+## Building from a fresh clone
+
+```
+git clone --recurse-submodules <this repository's URL> ss-delta
+cd ss-delta
+python -I third_party/recomp/tools/build-vita3k.py --target ss-delta
+```
+
+The script finds MSVC (vswhere) and Qt (`Qt6_ROOT`, `--qt <dir>`, or the
+newest `C:\Qt\<version>\msvc20*_64`). The first build takes about ten
+minutes and puts `ss-delta.exe` in `build/vita3k/bin/RelWithDebInfo/`.
+
+## Installing your game
+
+```
+python -I third_party/recomp/tools/install-game.py --name ss-delta ^
+    --firmware PSVUPDAT.PUP PSP2UPDAT.PUP ^
+    --install "<your dump: folder, .zip or .vpk>"
+```
+
+(For a pkg: `--install "<game>.pkg" --license "<work.bin>" --install
+"<1.30 patch>.pkg"`.) The script installs the firmware and the game into a
+Vita file system, checks that `eboot.bin` is 1.30, runs the game briefly to
+write its modules out, recompiles them and the firmware modules to C++ and
+compiles them (this takes a while), then lays out `dist/ss-delta/`:
+`ss-delta.exe`, the recompiled `ssd_aot_*.dll`, a commented `ss-delta.ini`
+and the Vita file system in `fs/`. Everything in it is derived from your
+copy: don't share it.
+
+## Playing
+
+Run `dist/ss-delta/ss-delta.exe`; `README.txt` in that folder explains the
+settings (`ss-delta.ini`: resolution, frame rate, window, bindings), the
+Black Rite binding, save import and export, and Ad Hoc Play
+(`run-player2.bat`).
+
 ## Toolchain
 
-The Vita3K fork and the recompiler are git submodules, shared with the
-sibling port of Shinobido 2, utakata ([D17](docs/decisions.md)), and live
-on the owner's private Forgejo until they are published:
+The Vita3K fork and the recompiler are git submodules, shared with utakata
+([D17](docs/decisions.md)):
 
 * `third_party/vita3k`: our Vita3K fork, branch `games` (the single-game
   frontend `vita3k/game-frontend/` and one executable per game,
   `vita3k/games/ss-delta/` for `ss-delta.exe`);
-* `third_party/recomp`: `vita-recomp-kit`, the recompiler (`recomp/`), the
+* `third_party/recomp`: vita-recomp-kit, the recompiler (`recomp/`), the
   generic tools and the build, install and packaging scripts. `game.json`
   describes this game to those scripts.
-
-```
-git -c protocol.file.allow=always submodule update --init --recursive
-python -I third_party/recomp/tools/build-vita3k.py --project . --target ss-delta
-```
 
 ## Documentation
 
@@ -84,7 +131,7 @@ has its options):
 
 | Script | What |
 |---|---|
-| `tools/build-vita3k.py` | configure and build our Vita3K fork (`third_party/vita3k`) into `build/vita3k` (MSVC found with vswhere; `--no-jit`: `build/vita3k-nojit`) |
+| `tools/build-vita3k.py` | configure and build our Vita3K fork (`third_party/vita3k`) into `build/vita3k` (MSVC found with vswhere, Qt in its default folder; `--no-jit`: `build/vita3k-nojit`) |
 | `tools/install-game.py`, `tools/make-dist.py` | a playable folder in `dist/` from the player's dump and firmware, as `game.json` describes it |
 | `tools/velf.py` | Vita SCE ELF: segments, module_info, NID-named imports/exports, exidx |
 | `tools/vitaelf.py` | library: Vita ELF segments, module_info, imports/exports, exidx, EHABI exception scopes |
