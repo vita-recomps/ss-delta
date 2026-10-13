@@ -5,8 +5,8 @@
 #   python -I tools/lspk.py extract <...>/retail/archive_patch3 build/lspk boot/quest_param.csv
 #   python -I tools/questmaps.py build/lspk/resource/boot/quest_param.csv > build/maps.txt
 #   .\tools\map-sweep.ps1 -List build\maps.txt [-Only ST17C,ST01B] [-OutDir build\maps]
-# Needs ss-delta.exe built (tools/build-vita3k.ps1) with ss-delta.ini pointing at the shared install
-# and the recompiled modules. About 2.5 minutes per map.
+# Needs ss-delta.exe built (third_party/recomp/tools/build-vita3k.py) with ss-delta.ini pointing at
+# the shared install and the recompiled modules. About 2.5 minutes per map.
 param(
     [Parameter(Mandatory)][string]$List,
     [string]$Only = '',
@@ -19,7 +19,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
-$drive = Join-Path $PSScriptRoot 'v3kdrive.py'
+$drive = Join-Path $root 'third_party\recomp\tools\v3kdrive.py'
 $install = 'extracted/vita3k'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 

@@ -47,8 +47,8 @@ __pycache__/
 /*.jpg
 /*.log
 
-# Vita3K fork: a nested git clone with its own history (D5). Our patch
-# series is exported to patches/vita3k/ and committed there.
-/third_party/vita3k/
+# Vita3K fork (third_party/vita3k) and recompiler (third_party/recomp) are
+# git submodules (D17). The fork's patch series up to 0042 is kept in
+# patches/vita3k/.
 /third_party/vita3k-plus-src/
 /third_party/vita-headers/

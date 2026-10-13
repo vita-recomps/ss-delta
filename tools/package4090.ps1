@@ -34,8 +34,8 @@ $ext = Join-Path $repo 'extracted'
 $src = @{
     'vita3k'      = Join-Path $ext 'vita3k'
     'vita3k-plus' = Join-Path $ext 'vita3k-plus\1.2'
-    # our fork (third_party/vita3k), built by tools/build-vita3k.ps1; the PDB is kept so a
-    # crash on the other PC logs a symbolised stack
+    # our fork (third_party/vita3k), built by third_party/recomp/tools/build-vita3k.py; the PDB is
+    # kept so a crash on the other PC logs a symbolised stack
     'vita3k-ours' = Join-Path $repo 'build\vita3k\bin\RelWithDebInfo'
 }
 

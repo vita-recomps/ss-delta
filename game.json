@@ -1,0 +1,29 @@
+{
+  "_comment": "Read by third_party/recomp/tools (install-game.py, make-dist.py; see gameproject.py). The modules are recompiled at their load addresses; adhoc_matching loads only in Ad Hoc Play and is recompiled for the address it takes there (D15).",
+  "id": "ss-delta",
+  "name": "Soul Sacrifice Delta",
+  "title_id": "PCSA00152",
+  "eboot_sha256": {
+    "a13a1bfed7f58aa743fc8c0e2db166438ac3af0f2d92b107c2e3f84b92e64fed": "1.30"
+  },
+  "modules": {
+    "eboot": "eboot",
+    "libc": "libc",
+    "libfios2": "libfios2",
+    "libult": "libult",
+    "sysmodule": "fw_sysmodule",
+    "libSceFt2": "fw_libSceFt2",
+    "libpvf": "fw_libpvf",
+    "libscemp4": "fw_libscemp4",
+    "libsceavplayer": "fw_libsceavplayer",
+    "adhoc_matching": "fw_adhoc_matching"
+  },
+  "load_bases": {
+    "adhoc_matching": "80757000"
+  },
+  "dump_seconds": 45,
+  "dist_readme": "docs/dist-readme.txt",
+  "dist_files": {
+    "run-player2.bat": "@start \"\" \"%~dp0ss-delta.exe\" --player 2\n"
+  }
+}
