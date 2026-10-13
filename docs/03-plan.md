@@ -62,7 +62,9 @@ first.
   * Patch 0003 (repack odd vertex strides) fixes the exploded geometry
     that followed.
   * ☐ Report upstream: the AMD trigger to Vita3K (and AMD), and patches
-    0002–0004 as PRs. **Deferred** by the owner until later (2026-10-09).
+    0002–0004 as PRs; since 2026-10-12 also patch 0039 (NaN-ignoring
+    min/max, the white floor on NVIDIA in upstream and Plus too).
+    **Deferred** by the owner until later (2026-10-09).
 * ☑ The remaining misaligned vertex attribute (`R16G16_UINT` at an odd
   offset) was the cloak speckle. Patch 0004 repacks any stream Vulkan
   can't fetch in place. The cloak is now correct on AMD, which Plus doesn't
@@ -89,9 +91,11 @@ first.
   * No crashes, 30 fps.
   * Every rendering artifact depends on the GPU vendor.
   * Upstream Vulkan works on NVIDIA.
-* ◐ Investigate the uninitialized register reads in translated shaders
+* ☑ Investigate the uninitialized register reads in translated shaders
   (NVIDIA GLSL warnings), starting with the Walhalla floor shader.
-  * This is the leading hypothesis for the vendor-dependent artifacts.
+  * Closed 2026-10-13: they were not the cause. The last vendor-dependent
+    artifact, the NVIDIA floor, was a NaN in min/max (patch 0039, below),
+    and the warnings read were benign.
   * ☑ Tie the warnings to shader hashes. The two read so far are benign
     partial-`vec4` copies ([02-baseline](02-baseline.md#rtx-4090-results-2026-10-09)).
   * ☑ Zero-initialise every register array in our build's translator: done
@@ -581,10 +585,15 @@ built without the JIT.
 
 ## Later (deferred)
 
-* XLink Kai compatibility (play with real Vitas over the internet).
 * Modding hooks: C++ function overrides, plus loose files (the engine
   already prefers loose files when `PackFileFirst false`).
 * Other platforms (Linux, Steam Deck).
+
+## Unplanned
+
+* XLink Kai compatibility, ad hoc play against real Vitas over the
+  internet (owner, 2026-10-13). Ad Hoc Play between copies of the port, on
+  one PC or in a LAN, is Phase 10.
 
 ---
 

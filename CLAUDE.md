@@ -76,7 +76,8 @@ conventions.
 - Ad Hoc Play tests: `ss-delta.exe --player N` (2-4) is another copy with
   Vita user N-1 (a copy of user 00's saves), `ss-delta/player<N>/` and the
   address 127.0.0.N; `v3kdrive.py ... --player N` drives it. Test as players
-  2 and 3, so user 00 (the owner's saves) is never written.
+  3 and 4: the owner plays players 1 and 2 (users 00 and 01, their own co-op
+  progress since 2026-10-12) from the shared `extracted/vita3k/fs`.
 - Game archives: `python -I tools/lspk.py list|extract <.../retail/archive> ...`
   (`archive_patch3` overrides `archive`). `tools/questmaps.py` turns
   `quest_param.csv` into the map list `tools/map-sweep.ps1` sweeps through
