@@ -61,8 +61,8 @@ project's Vita3K fork and recompiler ([D17](docs/decisions.md)).
   `python -I third_party/recomp/tools/build-vita3k.py --project . [--target ss-delta]`
   (MSVC found with vswhere, Ninja Multi-Config, RelWithDebInfo) into
   `build/vita3k`. A fresh configure (`--reconfigure`, a new build dir) also
-  needs Qt 6.11.0 in `C:\Qt`: dot-source `tools/devshell.ps1` first, which
-  sets `Qt6_ROOT`.
+  needs Qt 6.11.0: the script takes `--qt`, `Qt6_ROOT`, or finds the newest
+  `C:\Qt\<version>\msvc20*_64` itself.
 - Our build's `config.yml` must keep `disable-surface-sync: false` and
   `high-accuracy: true` (D4 update 4: fog, haze and smoke) and
   `memory-mapping: double-buffer` (`external-host` hides objects).
