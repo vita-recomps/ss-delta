@@ -4,6 +4,14 @@ ss-delta.exe runs the game installed in a Vita file system ([paths] vita_fs in
 ss-delta.ini; default: the fs folder next to this file), with the game's code
 recompiled to native code (ssd_aot_*.dll, built from your own dump).
 
+Settings: press F1, or hold Select (Back/View) on a gamepad for a second, to
+open the settings menu over the paused game (Up/Down choose, Left/Right or
+Cross change, L1/R1 or Q/E switch pages, Circle, Esc or F1 close). Window
+size, fullscreen, vsync, filter, volume and frame rate change at once; the
+rest are marked * and take effect the next time the game starts. The menu
+writes ss-delta.ini, which can also be edited by hand (key bindings and paths
+are there only).
+
 Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
 Alt+Enter while playing), filter, frame rate (frame_rate under [display]:
 60, or 30 as on the Vita; loading screens stay at 30), volume, keyboard and

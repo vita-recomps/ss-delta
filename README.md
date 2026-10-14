@@ -30,7 +30,10 @@ Phase 8 (PC features) is mostly done:
 * the Black Rite touch has key/gamepad bindings;
 * Vita saves can be imported and exported;
 * the add-ons (DLC) are unlocked;
-* F12 saves a screenshot.
+* F12 saves a screenshot;
+* an in-game settings menu: F1, or Select held for a second on a gamepad,
+  opens it over the paused game; it edits `ss-delta.ini` (key bindings and
+  paths stay in the file).
 
 The game runs at 60 fps (`[display] frame_rate`, 30 for the Vita's rate):
 it keeps its speed, and loading screens stay at 30 fps ([D16](docs/decisions.md)).
