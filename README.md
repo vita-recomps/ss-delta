@@ -4,7 +4,7 @@ A native PC port of **Soul Sacrifice Delta** (PS Vita, US PCSA00152, v1.30)
 by static recompilation, built from the player's own dump. The game's code,
 and the firmware modules it loads, are recompiled ahead of time to C++ and
 run natively inside a fork of Vita3K, which supplies the rest of the
-console. Its sibling, utakata, ports Shinobido 2 with the same toolchain.
+console.
 
 > This repository contains *no* game data, *no* firmware and *no* code
 > derived from the game. You bring your own dump; everything game-derived is
@@ -12,35 +12,44 @@ console. Its sibling, utakata, ports Shinobido 2 with the same toolchain.
 
 ## Status
 
-Phases 0 to 6 are done. `ss-delta.exe` is a single-game executable built
-from our Vita3K fork. It has no Qt interface; its settings, keyboard and
-gamepad bindings are in `ss-delta.ini`, and it runs offline. It runs the game
-on native code alone: the game's modules and the firmware modules it loads
-are recompiled to C++, and a build without the dynarmic JIT plays at 30 fps.
-`third_party/recomp/tools/install-game.py` turns the player's own dump and
-firmware into a playable folder, generating and compiling everything
-locally.
+The whole game plays on native code, without a JIT: every quest map and the
+story up to the final battle render correctly on AMD and NVIDIA GPUs, the
+add-ons are unlocked, and Ad Hoc Play works between copies on one PC and
+across a LAN ([compatibility](docs/06-compatibility.md)). The endings after
+the final battle have not been reached in testing yet. Windows only for
+now; Linux and macOS builds are planned.
 
-Phase 7 (rendering correctness) is done. Every quest map and the story
-scenes up to the final battle render correctly, and Mind's Eye works.
+## Features
 
-Phase 8 (PC features) is mostly done:
-* the 3D renders at the full 960×544 (the game's own mode), times
-  Vita3K's multiplier: 1920×1088 at 30 fps on every map at scale 2;
-* the Black Rite touch has key/gamepad bindings;
-* Vita saves can be imported and exported;
-* the add-ons (DLC) are unlocked;
-* F12 saves a screenshot;
-* an in-game settings menu: F1, or Select held for a second on a gamepad,
-  opens it over the paused game; it edits `ss-delta.ini` (key bindings and
-  paths stay in the file).
+Compared with running the game in Vita3K:
 
-The game runs at 60 fps (`[display] frame_rate`, 30 for the Vita's rate):
-it keeps its speed, and loading screens stay at 30 fps ([D16](docs/decisions.md)).
-
-Phase 9 (the compatibility pass, [06-compatibility](docs/06-compatibility.md))
-and Phase 10 (Ad Hoc Play) are done. Copies of `ss-delta.exe` play together
-in Ad Hoc Play, on one PC (`--player 2`) or between PCs in a LAN.
+* **Native code.** The game's code, and the firmware modules it loads, are
+  recompiled ahead of time to C++ and run natively; the build ships without
+  the JIT. Each module is checked against the game in memory before its
+  native code runs.
+* **60 fps.** The game runs at 60 fps by default and keeps its speed:
+  ss-delta changes its frame pacing (data in memory, no code patch) and
+  drops to 30 fps only on loading screens, which never finish at 60
+  ([D16](docs/decisions.md)). `frame_rate = 30` gives the Vita's rate.
+* **Full-resolution 3D.** On a Vita the game draws its 3D at 720×408 and
+  stretches it. ss-delta uses the game's own 960×544 mode, times the
+  resolution multiplier: 1920×1088 at scale 2 ([D13](docs/decisions.md)).
+* **Rendering fixes** for bugs the game shows in Vita3K, among them the
+  white floors on NVIDIA GPUs (in upstream Vita3K and Vita3K-Plus too) and
+  a "ghost" of the bloom trailing moving objects.
+* **Ad Hoc Play on one PC.** Up to four copies of the game play together on
+  one PC, each with its own saves and gamepad, or across a LAN
+  ([D15](docs/decisions.md)).
+* **The add-ons unlocked.** Their content is in the game since update
+  1.30, and PSN, which recorded the purchases, is closed
+  ([D14](docs/decisions.md)).
+* **An in-game settings menu** (F1, or Select held on a gamepad) over the
+  paused game, and a commented `ss-delta.ini`.
+* **Touch on keys and buttons:** the Black Rite icon on F and the left
+  trigger; the mouse is the touchscreens.
+* **Vita saves** imported and exported (`--import-save`, `--export-save`).
+* **One executable**, `ss-delta.exe`, without Vita3K's interface and
+  offline, installed from your own dump with one command.
 
 ## What you need
 
@@ -95,8 +104,8 @@ Black Rite binding, save import and export, and Ad Hoc Play
 
 ## Toolchain
 
-The Vita3K fork and the recompiler are git submodules, shared with utakata
-([D17](docs/decisions.md)):
+The Vita3K fork and the recompiler are git submodules, repositories of their
+own ([D17](docs/decisions.md)):
 
 * `third_party/vita3k`: our Vita3K fork, branch `games` (the single-game
   frontend `vita3k/game-frontend/` and one executable per game,

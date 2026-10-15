@@ -644,14 +644,12 @@ no third-party save is shipped or needed.
   README (`docs/dist-readme.txt`) and extra files (`run-player2.bat`). The
   ini comes from `ss-delta.exe --write-ini` instead of parsing
   `settings.cpp` (`tools/ssdelta_ini.py`).
-* The hubs are local bare repositories (`vita3k.git`,
-  `vita-recomp.git`, `ss-delta.git`) until the owner publishes them; the
-  submodule URLs change then.
-* Update (2026-10-13): the hubs moved to the owner's private git server
-  (`vita3k`, `vita-recomp-kit`, `ss-delta`; the sibling is now called
-  utakata), with the history rewritten to the GitHub no-reply address
-  first, and MIT chosen for this repo (except `patches/vita3k/`, GPL) and
-  vita-recomp-kit (utakata's D6).
+* The fork and the recompiler are repositories of their own (`vita3k`,
+  `vita-recomp-kit`), published beside this one. The submodule URLs are
+  relative (`../vita3k`, `../vita-recomp-kit`), so a clone finds them next
+  to wherever it came from.
+* Licences: MIT for this repo (except `patches/vita3k/`, GPL) and
+  vita-recomp-kit; the fork stays GPL-2.0-or-later.
 * SSD's own tools stay here: `lspk.py`, `questmaps.py`, `map-sweep.ps1`,
   `package4090.ps1` with `pkg4090/`, `devshell.ps1`.
 
