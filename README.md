@@ -62,7 +62,7 @@ in its window:
 3. accept Microsoft's licence.
 
 The setup downloads the PS Vita firmware from Sony and a compiler (about
-650 MB in all, kept in `%LOCALAPPDATA%ita-recomps`). It then installs
+650 MB in all, kept in `%LOCALAPPDATA%\vita-recomps`). It then installs
 the game, translates its code and compiles it on your PC, which takes a
 few minutes. Nothing of the game is in the setup or leaves your PC. The
 setup is not signed yet, so Windows may warn about it ("More info", "Run
