@@ -64,9 +64,12 @@ in its window:
 The setup downloads the PS Vita firmware from Sony and a compiler (about
 650 MB in all, kept in `%LOCALAPPDATA%\vita-recomps`). It then installs
 the game, translates its code and compiles it on your PC, which takes a
-few minutes. Nothing of the game is in the setup or leaves your PC. The
-setup is not signed yet, so Windows may warn about it ("More info", "Run
-anyway"). Its SHA-256 and build attestation are on the release page.
+few minutes. Play from the folder it made (by default `ss-delta`, next to
+the setup's folder) or from the desktop shortcut it offers; the setup's
+own folder can be deleted afterwards. Nothing of the game is in the setup
+or leaves your PC. The setup is not signed yet, so Windows may warn about
+it ("More info", "Run anyway"). Its SHA-256 and build attestation are on
+the release page.
 
 ## What you need
 
