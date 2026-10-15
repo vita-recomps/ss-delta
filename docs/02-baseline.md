@@ -1267,3 +1267,36 @@ first frame with the quest HUD. *Down*: the last HUD frame before the
 
 **Result:** no difference between native and JIT in a fight's timing or
 outcome, within the run-to-run spread of the emulator itself.
+
+
+## 60 fps on a discrete GPU, and the 57-58 cap (2026-10-15, fixed)
+
+The owner ran the setup's build (GitHub Actions) on the RTX 4090 PC
+(Ryzen 7 7800X3D): 47-50 fps at scale 1, a little less at scale 2, where
+the Radeon 760M runs 56-57.
+
+* **Surface sync is the cost.** With `[debug] surface_sync = off` the 4090
+  runs 57-58, but ST03A (snow) is blown out: brightness 221 against 184 in
+  a screenshot at the same moment.
+* **What is synced.** One surface: a 480×272 RGBA8 image at `0x606c0020`,
+  which the game's own CPU code reads every frame (`SSD_SYNC_TRACE=1`).
+  It is probably the auto-exposure meter (**hypothesis**: the read site
+  wasn't looked at). No texture lookup misses the surface cache.
+* **Not the waiting.** Signalling notifications early for scenes the CPU
+  doesn't read back (`targeted`), or for all of them (`latent`), didn't
+  help on the 4090. Both still render ST03A correctly.
+* **The cause: reading video memory.** The double-buffer mapping's mirror of
+  guest memory is allocated for sequential writes. On a discrete GPU with
+  Resizable BAR that is device-local, host-visible memory, which the CPU
+  reads very slowly. The sync's `memcpy` back to guest memory runs on the
+  request thread, which also releases finished frames. The fix (fork
+  `e8d0417e`): the image is also copied into a buffer of its own in cached
+  system memory, and the CPU copies from there. **Owner: `exact` now holds
+  57-58 at scale 1 and 2 on the 4090, and the snow looks right.**
+* **57-58 on every GPU.** With host vsync off it stays 57, so it isn't
+  presentation. The game waits out its frame timer (16666 µs at 60), then
+  flips on the next vblank. Host waits overshoot by up to about a
+  millisecond, so a few frames a second missed their vblank and took two.
+  With the timer at 16000 µs (fork `7f8a001c`), the ST03A quest runs at
+  59-60 (median 60) on the Radeon 760M. The flip still waits for each
+  vblank, so it can't exceed 60.

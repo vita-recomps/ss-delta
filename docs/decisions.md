@@ -610,6 +610,10 @@ no third-party save is shipped or needed.
 
 * Loading screens look as on the Vita (30 fps); everything else runs at
   60, as far as the GPU allows (54–57 fps on the Radeon 760M).
+* Update (2026-10-15): the frame timer is 16000 µs at 60, not 16666. Host
+  waits overshoot, so frames sometimes missed their vblank, which capped
+  every GPU at 57-58. Now it runs 59-60 ([02-baseline](02-baseline.md),
+  "60 fps on a discrete GPU"); the flip still waits for each vblank.
 * If another screen depends on the frame time the same way, it hangs at 60
   in a way the scripted checks didn't reach; switching back to 30 is the
   workaround.
