@@ -1,0 +1,66 @@
+# The players' setup (docs/decisions.md D18): builds ss-delta.exe without Qt and lays out the setup
+# with vita-recomp-kit's make-setup.py. The setup holds no game or firmware data: on the player's PC it
+# downloads the firmware from Sony and a compiler, and builds the port from the player's own dump.
+# A tag v* makes a draft release with the zip, its SHA-256 and a build attestation; a manual run
+# only uploads the zip as a workflow artifact.
+name: Setup release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build ss-delta.exe (games only, no Qt)
+        shell: pwsh
+        run: python -I third_party/recomp/tools/build-vita3k.py --games-only --target ss-delta
+
+      - name: Lay out the setup
+        shell: pwsh
+        run: |
+          $name = if ('${{ github.ref_type }}' -eq 'tag') { 'ss-delta-setup-${{ github.ref_name }}' } else { 'ss-delta-setup-${{ github.sha }}'.Substring(0, 30) }
+          python -I third_party/recomp/tools/make-setup.py build third_party/recomp/tools/setup-windows.json `
+            --project . --bin build/vita3k-games/bin/RelWithDebInfo --out "build/release/$name" --zip
+          $zip = "build/release/$name.zip"
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii "build/release/$name.zip.sha256"
+          "ZIP=$zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "NAME=$name" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ env.ZIP }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            ${{ env.ZIP }}
+            ${{ env.ZIP }}.sha256
+
+      - name: Draft release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' "$env:ZIP" "$env:ZIP.sha256" --draft `
+            --title 'ss-delta ${{ github.ref_name }}' `
+            --notes "Unzip, run setup.bat and point it at your own dump of Soul Sacrifice Delta (PCSA00152, update 1.30). See README.txt in the playable folder it makes. SHA-256 and the build attestation: see the files attached and 'gh attestation verify'."

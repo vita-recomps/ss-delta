@@ -51,6 +51,23 @@ Compared with running the game in Vita3K:
 * **One executable**, `ss-delta.exe`, without Vita3K's interface and
   offline, installed from your own dump with one command.
 
+## The setup (no building)
+
+Each release on GitHub has a setup, `ss-delta-setup-<version>.zip`, for
+players who don't want to build anything. Unzip it, run `setup.bat`, and
+in its window:
+
+1. choose your dump (the parts described below);
+2. choose the folder to play from;
+3. accept Microsoft's licence.
+
+The setup downloads the PS Vita firmware from Sony and a compiler (about
+650 MB in all, kept in `%LOCALAPPDATA%ita-recomps`). It then installs
+the game, translates its code and compiles it on your PC, which takes a
+few minutes. Nothing of the game is in the setup or leaves your PC. The
+setup is not signed yet, so Windows may warn about it ("More info", "Run
+anyway"). Its SHA-256 and build attestation are on the release page.
+
 ## What you need
 
 * Windows 10 or 11, x64, a GPU with Vulkan.
@@ -59,8 +76,8 @@ Compared with running the game in Vita3K:
   or the PSN `.pkg` with its licence `work.bin` plus the 1.30 patch pkg.
   The add-ons' content is part of 1.30.
 * The PS Vita firmware update files `PSVUPDAT.PUP` and `PSP2UPDAT.PUP` (as
-  for Vita3K; Sony publishes them).
-* To build: Git, Python 3.12 (`pip install capstone pyyaml`), Visual Studio
+  for Vita3K; Sony publishes them, and the setup downloads them).
+* To build (not needed with the setup): Git, Python 3.12 (`pip install capstone pyyaml`), Visual Studio
   2022 or its Build Tools with "Desktop development with C++" (MSVC x64,
   the Windows SDK, CMake and Ninja), Qt 6.11 for MSVC x64 (Vita3K's own
   interface is built too; e.g. with `aqtinstall` into `C:\Qt`), and the

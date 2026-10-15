@@ -668,3 +668,34 @@ drift (shinobido-2 D4).
   `build-vita3k.py`, and `ss-delta.exe` from it starts a quest from Stage
   Select (ST01A) with native code, switching to 30 fps for the loading
   screen and back to 60.
+
+## D18 — Players get a setup that compiles the port on their own machine (accepted, 2026-10-15)
+
+**Context:** the owner wants players to get a playable port without
+cloning or building. Nebula (Super Mario Galaxy) ships a setup that
+compiles the game's recompiled code on the player's PC. Yakumo (Monster
+Hunter Portable 3rd HD) ships releases with the recompiled game code built
+in, which works on every platform, but distributes code derived from the
+game's executable. The same decision is utakata's D9.
+
+**Decision:**
+
+* Nebula's model: nothing derived from the game or the firmware is
+  distributed (D2). A release is a setup (vita-recomp-kit `make-setup.py`):
+  * Python's embeddable distribution with Tk, capstone and PyYAML;
+  * the kit's tools;
+  * `ss-delta.exe`, built without Qt (the fork's `VITA3K_GAMES_ONLY`).
+* On the player's PC the setup:
+  * downloads the firmware from Sony and a pinned compiler: llvm-mingw's
+    clang-cl with Microsoft's C++ runtime and Windows SDK, from Microsoft
+    under Microsoft's licence, which the player accepts;
+  * installs the player's dump, recompiles and compiles the modules;
+  * lays out the playable folder.
+* GitHub Actions builds the setup from a tag
+  (`.github/workflows/release.yml`) into a draft release with its SHA-256
+  and a build attestation. The release is unsigned at first.
+
+**Rejected:** shipping recompiled game code in releases (Yakumo's way):
+it makes every platform easy, but it distributes a derivative of the
+game's code.
+
