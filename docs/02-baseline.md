@@ -1300,3 +1300,34 @@ the Radeon 760M runs 56-57.
   With the timer at 16000 µs (fork `7f8a001c`), the ST03A quest runs at
   59-60 (median 60) on the Radeon 760M. The flip still waits for each
   vblank, so it can't exceed 60.
+
+## Blue haze in ST02A: colour outputs clamped (2026-10-18, fixed)
+
+The owner compared quest 2 (ST02A, Stage Select index 3) with a Vita
+screenshot: ours had a blue-violet haze over the distance (the cave in the
+upper left) and a bluer sky. Measured in matching regions, red and green
+agreed with the Vita and blue was far higher (far ground 92,100,156 against
+103,110,128). The Phase 7 sweep already shows it.
+
+* **Ruled out:** the recompiler (all on the JIT: the same), `full_3d`
+  (720x408: the same), EXP/LOG in base 2 (no change), the god-ray pass
+  (skipping `d336bf85`: no change), surface sync (off: brighter, still blue).
+* **Where.** A RenderDoc capture (`VITA3K_RENDERDOC_FRAME=file`): the pixel
+  history put the blue in the scene's own draws (the cave's last draw wrote
+  0.35,0.39,0.62), not in post-processing. The shader debugger showed its
+  colour input at (0.70, 1.02, 3.01).
+* **Why.** The fogged geometry's vertex shaders (`8fce4976`, `9ecd8510`, ...)
+  compute the fog colour as ambient light (spherical harmonics, `cAr` ..
+  `cC`) times `iFogCol0` (0.5, 0.75, 1.0) and pass it out through COLOR0/1.
+  The map's constants are authored that way (four-decimal values in guest
+  memory, next to a colour matrix and the fog colour): `cAb` points another
+  way than `cAr`/`cAg`, so blue reaches about 3 toward the cave.
+* **Fix (fork `a32f1c4c`):** COLOR0 and COLOR1 vertex outputs are clamped
+  to [0, 1] (`clamp_color_varyings`, set by `ss-delta.exe` and
+  `shinobido2.exe`; `VITA3K_CLAMP_COLOR_VARYINGS=0/1` overrides it). Far
+  ground 101,112,132 against the Vita's 103,110,128. **Hypothesis:** the
+  Vita's colour iterators saturate; utakata's first mission matches its
+  hardware screenshot only with the clamp too. Shader cache version 23.
+* Six quest maps (ST16A, ST03A, ST02A, ST01A, ST06A, ST09A) with and without
+  it: 60 fps in both; screenshots differ only by what moved, apart from
+  ST02A. **Owner: the fix looks right.**
