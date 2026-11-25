@@ -53,6 +53,25 @@ jobs:
         with:
           python-version: '3.12'
 
+      # The device's build tools' downloads (python.org, ziglang.org, PyPI; android-build-tools.json)
+      # come first, kept between runs until the lock changes: ziglang.org once trickled for minutes
+      # after the NDK build had already taken 9 (2026-11-25), and a download that never stops is
+      # never timed out by the kit. Each attempt gets 5 minutes; files already checked are kept.
+      - uses: actions/cache@v6
+        with:
+          path: build/android/downloads
+          key: android-build-tools-${{ hashFiles('third_party/recomp/tools/android-build-tools.json') }}
+
+      - name: Download the build tools for the device
+        timeout-minutes: 16
+        run: |
+          for attempt in 1 2 3; do
+            timeout 300 python -I -c "import json, sys; sys.path.insert(0, sys.argv[1]); import toolchain; toolchain.download(json.load(open(sys.argv[2], encoding='utf-8')), sys.argv[3])" \
+              third_party/recomp/tools third_party/recomp/tools/android-build-tools.json build/android/downloads && exit 0
+            echo "::warning::attempt $attempt to download the build tools failed or took over 5 minutes"
+          done
+          exit 1
+
       - name: NDK r29, platform 35, build-tools 35, Ninja
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q ninja-build
@@ -79,7 +98,7 @@ jobs:
       - name: The build tools for the device
         run: |
           python -I third_party/recomp/tools/android-build-tools.py third_party/recomp/tools/android-build-tools.json \
-            build/android/buildtools --ndk "$NDK" --project .
+            build/android/buildtools --ndk "$NDK" --project . --cache build/android/downloads
 
       - name: Pack and sign the APK
         env:
