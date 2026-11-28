@@ -1529,6 +1529,10 @@ The review of everything since 0.5.3 (this repository, the fork
   active times and Red Hood's chains lasted a median 1.605 and 1.596
   seconds in the moving state. No new timing bug was confirmed in
   these runs.
+* ☑ **CAS screen filter** ([Vita3K#8](https://github.com/vita-recomps/Vita3K/pull/8),
+  contributed by Abdeygodin): `[display] filter = CAS`, a single-pass Vulkan
+  contrast-adaptive sharpening filter (5-tap AMD FidelityFX CAS) merged into
+  the shared `games` branch and accounted for in `CHANGELOG.md`.
 * ☑ **90 and 120 fps frame-rate targets & Vulkan VSync** (after the
   2026-11-24 study in [02-baseline](02-baseline.md) and #34):
   * ☑ Fork & kit: atomic `DisplayState::vblank_rate` + Windows high-res

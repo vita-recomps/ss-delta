@@ -8,6 +8,10 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
 
 ### New
 
+* **CAS screen filter** ([Vita3K#8](https://github.com/vita-recomps/Vita3K/pull/8),
+  contributed by Abdeygodin): `[display] filter` now includes `CAS`, a single-pass
+  Vulkan contrast-adaptive sharpening filter (5-tap AMD FidelityFX CAS) alongside
+  Bilinear, Bicubic, FXAA and FSR.
 * **90 and 120 fps frame-rate targets**: `[display] frame_rate` now offers
   `30`, `60`, `90` and `120` (and switches live in **Settings → Display**).
   `90` and `120` raise the emulated vblank rate to match (`DisplayState::vblank_rate`),
