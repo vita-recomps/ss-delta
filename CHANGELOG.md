@@ -80,6 +80,9 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
   three times before moving on.
 * **Android: firmware size text**: the setup screen now says about
   180 MB, matching the PC readmes and release notes.
+* **Android: rebuilding with both regions installed** now uses the installed
+  title with a complete set of module dumps. An EU rebuild no longer stops
+  at a missing US eboot dump when both games are installed.
 
 ### Changed
 
