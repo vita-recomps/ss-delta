@@ -8,6 +8,10 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
 
 ### New
 
+* **Stick sensitivity** ([#36](https://github.com/vita-recomps/ss-delta/issues/36)):
+  adjust the gamepad's left and right sticks independently under
+  **Settings → Game**. Changes take effect immediately. Both default to 1.0,
+  which keeps the existing response.
 * **Android: view and share diagnostic reports**
   ([#29](https://github.com/vita-recomps/ss-delta/issues/29),
   [Vita3K#2](https://github.com/vita-recomps/Vita3K/pull/2), contributed by
