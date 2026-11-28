@@ -394,8 +394,9 @@ installs only that.
   (`l2`, `r2` under `[keyboard]`). The game's text prompts show ✕ instead
   of touch. The Vita's "near" feature is unavailable then (it no longer
   works anyway), and so is AR mode, which needs the camera.
-* **Frame rate:** 60 fps by default; `frame_rate = 30` under `[display]`
-  gives the Vita's rate.
+* **Frame rate:** 60 fps by default; `frame_rate` under `[display]` also
+  takes `30` (the Vita's rate), `90`, or `120` (for 90/120 Hz screens, or
+  with VSync off).
 * **FPS counter:** FPS counter on the settings menu's Display page
   (`fps_counter` under `[display]`): off, `fps`, `frametime` (and the
   milliseconds a frame), `stats` (and the lowest, average and highest of

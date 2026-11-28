@@ -8,6 +8,10 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
 
 ### New
 
+* **90 and 120 fps frame-rate targets**: `[display] frame_rate` now offers
+  `30`, `60`, `90` and `120` (and switches live in **Settings → Display**).
+  `90` and `120` raise the emulated vblank rate to match (`DisplayState::vblank_rate`),
+  targeting high-refresh displays such as 90 Hz / 120 Hz handhelds and monitors.
 * **Stick sensitivity** ([#36](https://github.com/vita-recomps/ss-delta/issues/36)):
   adjust the gamepad's left and right sticks independently under
   **Settings → Game**. Changes take effect immediately. Both default to 1.0,
@@ -24,6 +28,18 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
 
 ### Fixed
 
+* **Live switch back to 30 fps and Vulkan VSync**: changing `[display] frame_rate`
+  back to `30` in the settings menu now takes effect immediately instead of
+  staying at the previous rate, and `[display] vsync` now controls the Vulkan
+  swapchain present mode (`Immediate` when off, rebuilding the swapchain on live
+  toggles) instead of only OpenGL. On Windows, the emulated vblank thread now
+  uses a high-resolution waitable timer (`timeBeginPeriod(1)` + spin margin)
+  for steady 90/120 Hz pacing.
+* **Windows MSVC developer AOT build performance**: `recomp`'s MSVC `/O1`
+  compile options now include `/Oi` and use `std::bit_cast` + `__forceinline`
+  on hot NEON/VFP/memory helpers, eliminating out-of-line 4-byte
+  `VCRUNTIME140!memcpy` calls that previously held MSVC developer builds around
+  ~70 fps in quests (release Zig/Clang builds were unaffected).
 * **Audio during an Ad Hoc Play pause**: opening the settings menu (or
   pausing) during Ad Hoc Play now mutes the audio ports while keeping the
   audio device draining at its normal rate, instead of suspending the

@@ -1529,6 +1529,37 @@ The review of everything since 0.5.3 (this repository, the fork
   active times and Red Hood's chains lasted a median 1.605 and 1.596
   seconds in the moving state. No new timing bug was confirmed in
   these runs.
+* ☑ **90 and 120 fps frame-rate targets & Vulkan VSync** (after the
+  2026-11-24 study in [02-baseline](02-baseline.md) and #34):
+  * ☑ Fork & kit: atomic `DisplayState::vblank_rate` + Windows high-res
+    `VblankPacer` (`display.cpp`, `ctrl.cpp`), Vulkan swapchain `vsync`
+    present-mode selection with live rebuilds (`screen_renderer.cpp`),
+    `ss-delta/frame_pacing.h` (`30/60/90/120`, `9800`/`6800 µs` 90/120
+    margins, live switching including back to `30`, loading-screen
+    fallback), `frame_pacing_tests` wired into CTest (`vita3k/util/tests`),
+    and MSVC `/O1 /Oi` + `std::bit_cast` + `__forceinline` in
+    `third_party/recomp` (`armrecomp.h`, `neon.h`, `recomp/CMakeLists.txt`).
+    Built on Windows (`ss-delta.exe`, `ssd_aot_eboot.dll`);
+    `cooperative_pause` and `frame_pacing` unit tests pass (`2/2`).
+  * ☑ Device & timed verification on the Thor (120 Hz screen) and a
+    high-refresh Windows PC:
+    * ☑ Thor (Adreno 740, NativeCPU, 0 JIT calls, `Mailbox` vsync on):
+      title screen locked **120 fps (8 ms)** (`skip_intro = false` boot to
+      title **121 fps**); live Settings menu toggles (`vsync` and `120 → 90
+      → 60 → 30`) switched cleanly (**90 fps / 11 ms**, **30 fps / 34 ms**);
+      ST03A (`q_e0101`, Turnip T23) loaded at 120 fps and ran **96–103 fps**
+      (avg 102) at 1×, **85–90 fps** after live in-quest switch to 90,
+      **72 fps** at 2× with adaptive 60–120 Hz automatically promoting to
+      `120.00 Hz`, and **59 fps** when locked to `60.00 Hz`. Fixed timed
+      ST03A checks (16 s load + 15 s interval) matched wall-clock pacing across
+      `30`, `60`, `90`, and `120` fps.
+    * ☑ Windows 11 (Ryzen 7 7800X3D + RTX 4090, 143 Hz): Vulkan `vsync = false`
+      (`Immediate`) and live `Mailbox ↔ Immediate` + `120/90/60/30` toggles
+      clean; timed `SE01A` Blitz casts consistent across `30/60/90/120` fps;
+      Title and `ST03A` (`q_e0101`) locked **120.0 fps (`8.33 ms`)** at 2×
+      with `surface_sync = exact` after the MSVC `/Oi` fix; Journal Ch. 1
+      narration and `.mp4` FMV played at normal 1× speed; Ad Hoc Play
+      cross-rate co-op (Thor 120 fps ↔ Windows 60 fps) passed cleanly.
 
 ## Phase 16 — Online multiplayer without a VPN (overlay first, Play Online later) ☐
 

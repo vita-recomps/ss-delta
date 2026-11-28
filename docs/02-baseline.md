@@ -1310,7 +1310,7 @@ the Radeon 760M runs 56-57.
   59-60 (median 60) on the Radeon 760M. The flip still waits for each
   vblank, so it can't exceed 60.
 
-## 120 fps study (2026-11-24, not implemented)
+## 120 fps study (2026-11-24; implemented & verified 2026-11-28)
 
 The owner asked whether 120 fps is possible. A local, uncommitted experiment
 on the fork (`SSD_VBLANK_HZ` for the emulated vblank rate, a `frame_rate =
@@ -1357,6 +1357,32 @@ timer to about 8000 µs. Not checked: per-frame game logic like the Blitz bug
 (D30; its override scales correctly at k = 0.25, but others would be twice as
 far off as at 60), audio, Ad Hoc Play between players at different rates, and
 how fast the owner's Ryzen 7 7800X3D runs that game thread.
+
+### AYN Thor (120 Hz) check (2026-11-28)
+
+Checked on the AYN Thor (Adreno 740, NativeCPU, 0 JIT calls, `Present mode: Mailbox (vsync on)`):
+
+| Screen / scene | Driver & scale | Display mode | Target | Measured fps (frame time) |
+|---|---|---|---|---|
+| Title screen | Qualcomm system, 1× | 120 Hz | 120 | **120** (8 ms) |
+| Title screen (live `120 → 90 → 60 → 30`) | Qualcomm system, 1× | 120 Hz | 90 / 30 | **90** (11 ms) / **30** (34 ms) |
+| ST03A (`q_e0101`, arena intro) | Turnip T23, 1× | 120 Hz | 120 | **98–121** (avg 108) |
+| ST03A (`q_e0101`, combat) | Turnip T23, 1× | 120 Hz | 120 | **96–103** (avg 102, 10 ms) |
+| ST03A (`q_e0101`, live `120 → 90`) | Turnip T23, 1× | 120 Hz | 90 | **85–90** (11–12 ms) |
+| ST03A (`q_e0101`, intro/arena) | Turnip T23, 2× | Adaptive 60–120 Hz (promoted to 120.00 Hz) | 120 | **72** (14 ms, avg 73) |
+| ST03A (`q_e0101`, combat) | Turnip T23, 2× | Locked 60.00 Hz | 120 | **59** (17 ms, avg 64) |
+
+* The loading screen completed cleanly at 120 fps (`loading screens at the set rate`), and live Settings menu toggles (`vsync` and `120 → 90 → 60 → 30`) switched without warnings.
+* Under `Mailbox` on Turnip, missing 8.3 ms at 120 Hz did not snap down to 60 fps (96–103 fps at 1×, 72 fps at 2×), and adaptive `60–120 Hz` promoted SurfaceFlinger to `120.00 Hz` automatically.
+* **Timed 30 / 60 / 90 / 120 fps comparison (ST03A `q_e0101`, `scale = 1`, Turnip T23, 2026-11-28):** with fixed 16 s post-launch load wait and a 15 s wall-clock interval, all four rates reached the same arena-intro and post-intro combat state at the same wall-clock times (`30` → 30 fps / 34 ms; `60` → 60 fps / 17 ms; `90` → 89 → 85 fps / 11–12 ms; `120` → 99 fps, avg 107 / 10 ms). Boot with `skip_intro = false` at `120` also reached the title screen cleanly (**121 fps**, 8 ms, avg 119).
+### Windows high-refresh PC & cross-rate Ad Hoc check (2026-11-28)
+
+Checked on Windows 11 (Ryzen 7 7800X3D, RTX 4090, 2560×1440 @ 143 Hz, NativeCPU):
+
+* **VSync & live toggles:** `vsync = false` selected `Present mode: Immediate (vsync off)` and `vsync = true` selected `Mailbox (vsync on)`. Live menu toggles (`Mailbox → Immediate → Mailbox` and `120 → 90 → 60 → 30 → 120`) switched cleanly with zero Vulkan/swapchain errors. Adding a Windows high-resolution `VblankPacer` (`timeBeginPeriod(1)` + `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` + 400 µs spin margin in `display.cpp`) and widening 90/120 fps timer headroom to `9800`/`6800 µs` (`frame_pacing.h`) eliminated Windows 1 ms CV overshoot.
+* **Timed Blitz (`Firebird Pinion+`, `SE01A` `q_g0001`, `vsync = false`):** Open backward Blitz casts (`end_dist` `13.54–13.85`, `max_dy` `2.21–2.42`, `dur_3b` `0.507–0.636 s`) and forward lock-on rush casts (`18.37–19.41`, `0.629–0.682 s`) stayed consistent across `30`, `60`, `90`, and `120` fps with no high-rate overshoot.
+* **MSVC `/O1` developer build bottleneck (fixed in `third_party/recomp`):** Profiling `MainThread` on local MSVC developer builds (`build/recomp/`, `/O1` without `/Oi`) showed >65% of CPU time spent in out-of-line NEON/VFP helpers (`nf_in`/`nf_out`) making 4-byte `VCRUNTIME140.dll!memcpy` calls (release Zig/Clang `-O1` builds were unaffected). Adding `/Oi` to `recomp/CMakeLists.txt` and using `std::bit_cast` + `__forceinline` in `armrecomp.h`/`neon.h` raised `120 fps` (`vsync = false`, `scale = 2` `1920×1088`, `surface_sync = exact`) from `~95–102 fps` on Title and `~68–71 fps` (`1×`, `latent`) in `ST03A` (`q_e0101`) to **locked `120.0 fps` (`8.33 ms` avg, `8.31–8.36 ms` median)** on both.
+* **Journal, FMV & Ad Hoc cross-rate:** Journal Ch. 1 narration and opening `.mp4` FMV playback ran at normal 1× speed at 90 and 120 fps. Cross-rate Ad Hoc Play between the AYN Thor at **120 fps** and Windows at **60 fps** worked cleanly with no desync or errors.
 
 ## Blue haze in ST02A: colour outputs clamped (2026-10-18, fixed)
 

@@ -41,7 +41,7 @@ writes ss-delta.ini, which can also be edited by hand (paths are there only).
 
 Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
 Alt+Enter while playing), filter, frame rate (frame_rate under [display]:
-60, or 30 as on the Vita), volume, keyboard and
+60, 30 as on the Vita, or 90 / 120 on a high-refresh screen), volume, keyboard and
 gamepad bindings. The mouse is the touchscreen: left button front, right
 button rear. The Black Rite icon (touch and hold) is also on F and the
 gamepad's left trigger ([touch] in ss-delta.ini). F12 saves a screenshot to

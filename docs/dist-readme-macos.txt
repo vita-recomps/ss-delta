@@ -50,7 +50,7 @@ they are set as standard function keys (System Settings, Keyboard).
 
 Settings are in ss-delta.ini: resolution, window, fullscreen (F11 or
 Option+Return while playing), filter, frame rate (frame_rate under
-[display]: 60, or 30 as on the Vita), volume,
+[display]: 60, 30 as on the Vita, or 90 / 120 on a high-refresh screen), volume,
 keyboard and gamepad bindings. The mouse or trackpad is the touchscreen:
 click for the front, right-click (two fingers) for the rear. The Black Rite
 icon (touch and hold) is also on F and the gamepad's left trigger ([touch] in
