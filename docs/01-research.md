@@ -756,8 +756,12 @@ reading the code.
     once from `0x81694742` when a page check fails (`0x81694aa6`).
     **Unknown** whether that last path runs every frame in some state.
   * `0x815ed630` (`0x815ed964`), in `MagicBullet`'s code: stores 1/30 at
-    `+0x920` beside two integers at `+0x918`/`+0x91c`; no direct read of
-    `+0x920` was found. **Unknown.**
+    object offset `+0x1920` (`+0x920` from the subobject at `+0x1000`).
+    The write is gated on bullet parameter flag `0x40`. The shipped
+    player, environment and system bullet tables have no entries with
+    that flag. The four enemy entries are Red Hood's two intercept
+    chains, Sleeping Beauty's intercept projectile and Cinderella's
+    throw counter. No direct read of the field was found.
 * **960/544** is built 6 times, each stored into a camera-like object
   shortly before `0x81815d22` (**hypothesis:** the projection): `0x8105a55c`
   (`+0x5a4`), `0x812b71b4`, `0x817074aa` (`+0x12c`), `0x817923be`
@@ -784,7 +788,28 @@ Worth checking in play at 30 against 60 fps, most likely first:
    `0x8136f54e`), which multiply a step vector by 30.
 2. The journal's episode playback (`0x81694742`'s 1/30 tick): text,
    voice and animation timing of a journal page at 60 fps.
-3. `MagicBullet` (`0x815ed630`, `+0x920`): projectile offerings at 60 fps.
+3. `MagicBullet` (`0x815ed630`, object offset `+0x1920`): projectile
+   offerings and the enemy counterattack branch at 60 fps.
+
+**Physical-console check (2026-11-27).** With the D30 overrides loaded,
+Firebird Pinion+ travelled 10.12 units at 29 fps and 10.02 at 60 fps in
+the same ST03A wall cast. The rush and air state lasted approximately
+0.46 and 0.48 seconds.
+
+**Steam Deck checks.** In *The Sorcerer's Ordeal Ch. 1*, the live episode
+cursor advanced 12.199 seconds over 12.194 wall seconds at 30 fps, and
+12.116 over 12.112 at 60 fps. Both runs turned to the same narrated page
+and showed the same text and animation in the same order. The captured
+audio envelope aligned near normal speed, with far weaker matches at
+half or double speed. In ST03A, two Fire Dragon Egg shots at each rate
+left the active projectile state about 0.68–0.71 seconds after firing.
+The state measurements and rendered shots show similar timing at the
+two rates. The 1/30 field stayed zero for this offering. Red Hood's
+intercept chains on ST02B did set the field to 1/30 at both rates.
+For five chains per run, the median measured duration in the moving
+state was 1.605 seconds at 30 fps and 1.596 at 60 fps. The homing paths
+varied between the two fights. The checked cases did not require a new
+eboot override.
 
 ### The Graphics pool and the journal crash [local, 2026-11-25]
 
@@ -1644,6 +1669,18 @@ numbers above:
 ### Ad hoc play
 
 [local, 2026-10-12; plan Phase 10]
+
+**XLink Kai retransmit patch (2026-11-27).** Both 1.30 XDelta patches
+matched both target-window checksums when applied to their region's
+eboot. Each changes two instructions, at `0x818a2e36` and `0x818a3142`,
+in the calls to `sceNetAdhocMatchingCreate`. The original instructions
+set the eighth argument to 8,000 µs with three retries. The patches
+replace those instructions with `movt`, setting the interval's upper
+16 bits to `0x80` (US) or `0x10` (EU). In either region the fork's LLE
+hook already raises the original interval to at least 250,000 µs.
+See [11-online](11-online.md#implementation-steps-phase-16a) for the
+port's measured latency and loss results.
+[Team XLink patch and installation notes](https://www.teamxlink.co.uk/wiki/Soul_Sacrifice_Delta_(PlayStation_Vita))
 
 * **Menu.** Librom → Network → Ad Hoc Play ("Relive quests w/local
   players"): Create Room (a difficulty cap, then the room) or Search for

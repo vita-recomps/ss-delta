@@ -1,0 +1,47 @@
+name: Cache Vita3K configure dependencies
+description: Restore external archives and prefetch FFmpeg before CMake configure
+inputs:
+  build:
+    required: true
+    description: CMake build directory
+  ffmpeg:
+    required: true
+    description: FFmpeg prebuilt release asset filename
+runs:
+  using: composite
+  steps:
+    - id: ffmpeg
+      shell: bash
+      run: |
+        full=$(git -C third_party/vita3k/external/ffmpeg rev-parse HEAD)
+        short=$(git -C third_party/vita3k/external/ffmpeg rev-parse --short HEAD)
+        echo "full=$full" >> "$GITHUB_OUTPUT"
+        echo "short=$short" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@v6
+      with:
+        path: |
+          ${{ inputs.build }}/external/discord_game_sdk.zip
+          ${{ inputs.build }}/external/ffmpeg.zip
+          ${{ inputs.build }}/external/openssl.zip
+          ${{ inputs.build }}/external/openssl.tar.gz
+          ${{ inputs.build }}/external/MoltenVK-macos.tar
+          ${{ inputs.build }}/external/validation_layers.zip
+          ${{ inputs.build }}/_deps/curl-src
+        key: vita3k-configure-${{ inputs.ffmpeg }}-${{ steps.ffmpeg.outputs.full }}-${{ hashFiles('third_party/vita3k/external/CMakeLists.txt') }}
+
+    - shell: bash
+      env:
+        FFMPEG_BUILD: ${{ inputs.build }}
+        FFMPEG_ASSET: ${{ inputs.ffmpeg }}
+        FFMPEG_TAG: ${{ steps.ffmpeg.outputs.short }}
+      run: |
+        archive="$FFMPEG_BUILD/external/ffmpeg.zip"
+        if [ ! -f "$archive" ]; then
+          mkdir -p "$(dirname "$archive")"
+          curl -fsSL --connect-timeout 30 --speed-limit 1 --speed-time 30 \
+            --retry 2 --retry-all-errors --retry-max-time 360 --max-time 180 \
+            -o "$archive.part" "https://github.com/Vita3K/ffmpeg-core/releases/download/$FFMPEG_TAG/$FFMPEG_ASSET"
+          cmake -E tar tf "$archive.part" >/dev/null
+          mv "$archive.part" "$archive"
+        fi

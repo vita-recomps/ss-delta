@@ -527,11 +527,10 @@ Results: [02-baseline](02-baseline.md#phase-8-2026-10-11), decision
   * ☑ The owner played at 60, alone and in Ad Hoc Play, without issues
     (2026-10-13): 60 is the default since patch 0042, written explicitly
     in the default `ss-delta.ini` (`frame_rate = 30` for the Vita's rate).
-  * ☐ The constant scan's candidates checked in play at 30 against 60
-    (2026-11-26, 01-research "1/30 s and 960/544 constants in the eboot"):
-    the reads of the global 30.0 at `0x81c9a484` that aren't multiplied by
-    the frame time (the Blitz family's movers first), the journal's
-    episode playback, `MagicBullet`'s projectiles.
+  * ☑ The 30-versus-60 fps follow-up on the constant scan measured a
+    Blitz wall cast, journal playback, a projectile offering and Red
+    Hood's intercept chains. The Blitz cast used the D30 overrides.
+    See [01-research](01-research.md#130-s-and-960544-constants-in-the-eboot-local-2026-11-26).
 * ☑ **Saves.**
   * ☑ Stored on the PC, in the Vita file system folder.
   * ☑ Import of Vita saves: `ss-delta.exe --import-save <folder|zip>`
@@ -1384,25 +1383,26 @@ The review of everything since 0.5.3 (this repository, the fork
   second gamepad inputs, and a trigger bound to a Vita button also turned
   the menu's page as R2.
 
-Left for the next release:
+0.6.1 checklist:
 
-* ☐ **Audio during an Ad Hoc pause** (fork `app/src/session_controller.cpp`
-  `apply_runtime_state_locked`): the guest keeps running but
-  `audio.switch_state(paused)` pauses the SDL device, so the game's audio
-  queues up (`sdl_audio.cpp` `audio_output` pushes after a `2*len` wait)
-  and plays late after the menu closes, draining at about half speed;
-  with cubeb the audio thread blocks for the whole pause. Every menu pause
-  did this before #29, so not a regression. Mute by volume when the guest
-  isn't frozen, or clear the ports' streams at resume.
-* ☐ **`Queue::abort()` without the mutex** (fork
+* ☑ **Audio during an Ad Hoc pause**: settings mute the ports while the
+  guest and audio device keep running. Full pauses still suspend the
+  device. The audio test covers gain changes and new ports during mute.
+  Two Windows copies stayed in a room through a 36-second settings
+  pause with the host still submitting audio to SDL's dummy device.
+* ☑ **`Queue::abort()` without the mutex** (fork
   `threads/include/threads/queue.h`): `wait_space()` and `push()` can miss
   its notify and block for good; at shutdown, with the display queue full,
   `process_exit`'s join would wait forever (a window of a few
-  instructions). Take `mutex_` in `abort()`.
-* ☐ **The pause's unit tests** (`util/tests/cooperative_pause_tests.cpp`)
+  instructions). `abort()` now holds `mutex_` while changing the
+  predicate. The Windows queue test exercised racing producers,
+  consumers and `wait_space()` callers.
+* ☑ **The pause's unit tests** (`util/tests/cooperative_pause_tests.cpp`)
   aren't built by any CMake project or CI, and cover the primitive only
   (not `pause_threads`, `run_loop`, the import handler, `process_exit`).
-* ☐ **Controls page**:
+  CMake and the PC release jobs now run the primitive and kernel tests.
+  Both passed on Windows, with a synthetic guest thread and no dump.
+* ☑ **Controls page**:
   * Binding `leftstick`, `rightstick` or `guide` to a Vita button still
     presses L3/R3/PS as well (`controller_binds` keeps Vita3K's identity
     entries for them; the swap logic doesn't know them).
@@ -1419,23 +1419,33 @@ Left for the next release:
   * `cfg.controller_binds` is written on the main thread while guest
     threads read it during Ad Hoc Play (the game runs behind the menu):
     short writes, harmless in practice.
-* ☐ **Kit `tools/toolchain.py` `obtain()`**: a source slower than 256 KB/s
+  * Remapped buttons now suppress their implicit action. Cursor capture
+    accepts physical mouse buttons and uses middle-click when its key is
+    already bound. Touch-generated clicks are ignored during capture,
+    Enter confirms in the desktop menu, and controller bindings share a
+    mutex with guest reads.
+* ☑ **Kit `tools/toolchain.py` `obtain()`**: a source slower than 256 KB/s
   is dropped for good; if the last source (no floor) then fails, the
   download fails on a slow line that ziglang.org alone would have served.
   Retry the sources dropped for speed without the floor. Players aren't
   hit (the release carries zig, D32). Also: the curl.exe branch keeps
   `--retry 3` with `--speed-limit`, so a slow source is dropped after
-  about 2 min instead of 30 s.
-* ☐ **Kit `install-game.py` / `setup.py`**: a stale `step-error.txt` (the
+  about 2 min instead of 30 s. A simulated slow primary and failed
+  mirror verified the fallback. The curl speed-limited attempt runs
+  without curl's retry flag.
+* ☑ **Kit `install-game.py` / `setup.py`**: a stale `step-error.txt` (the
   front end removes it only when the install step finishes) can blame a
-  run that crashed earlier on the previous run's licence error.
-* ☐ **Kit recompiler**: `decode_arm_table` (`semantics.py`) takes the case
+  run that crashed earlier on the previous run's licence error. PC and
+  Android clear the file before invoking the front end. A Windows
+  installer fixture verified the file across success and failure.
+* ☑ **Kit recompiler**: `decode_arm_table` (`tools/inventory.py`) takes the case
   count from the last `cmp` without checking it was on the index register
   (the Thumb `word_table_parts` does); a stale compare sends a valid index
   to `default: unsupported`. No unit tests for `vuzp`, fixed-point `vcvt`
   or `arm_mov_imm16`. Not reachable for ss-delta (its modules generate
-  the same code with and without these changes).
-* ☐ **Release workflow**:
+  the same code with and without these changes). The decoder checks the
+  index register, and the synthetic tests pass on Windows and Linux.
+* ☑ **Release workflow**:
   * Configure-time downloads (FFmpeg prebuilts, curl through
     FetchContent, MoltenVK and OpenSSL on macOS) run without a timeout,
     outside `ci-retry.py` and the cache: a GitHub stall can hold a job to
@@ -1452,9 +1462,16 @@ Left for the next release:
     secrets: pin it by SHA.
   * `tools/ci-wait-job.py` treats a 401/403 as a passing error and polls
     for 85 min before failing.
-* ☐ **rePatch**: a zip with a rePatch folder whose game sits at the root as
-  `PCSA00152/` (no `app/`) still gets only the mod installed.
-* ☐ **A toolchain smoke test in the release workflow**: CI never compiles
+  * The workflow now caches the configure dependencies and Gradle,
+    bounds and retries downloads and builds, and pins sccache by commit.
+    The job waiter fails early on a permanent GitHub API error. The
+    workflow files were checked locally. The next draft will exercise
+    the changes on the hosted runners.
+* ☑ **rePatch**: a zip with a rePatch folder whose game sits at the root as
+  `PCSA00152/` (no `app/`) still gets only the mod installed. A scratch
+  Windows install verified both the base game and mod installed into
+  their own directories, even with a `param.sfo` inside the mod.
+* ☑ **A toolchain smoke test in the release workflow**: CI never compiled
   anything with the toolchain it ships (the game's code can't be in CI),
   so a broken zig, a lost flag or a missing file passes CI and is found
   by the symbol check or the front end's load message on a player's
@@ -1466,31 +1483,52 @@ Left for the next release:
   check passed, and on the PC targets loaded and run for a known result.
   The APK's on-device build tools (aarch64 Android binaries) can't run on
   an x86 runner, so the Thor check stays for that path.
-* ☐ **Quest frame rate on this PC, unfocused**: in the 0.6.0 draft check
+  The workflow includes the test on all four targets. It ran on Windows,
+  Linux and Apple Silicon macOS. The Android ELF cross-build passed its
+  symbol and relocation checks. The native macOS run used the pinned
+  release Python and Zig and passed strict signature verification, the
+  two-export and relocation checks, and the load and execution checks.
+* ☑ **Quest frame rate on this PC, unfocused**: in the 0.6.0 draft check
   ST16A ran at 32-33 fps on Windows (the 760M, window not focused, as
   v3kdrive leaves it), the release build and the dev build alike (both
   native code, 0 native-to-JIT calls), where ST03A had shown 59.3 (D32).
   Find out whether ST16A's rain costs that on the 760M or an unfocused
   window is throttled (focused run, GPU clocks), and record it in
-  02-baseline.
-* ☐ **`--android`'s adb replaces a running adb server** of another version
-  (the SDK's, 37.0.1): the wireless device dropped out of it and had to be
-  connected again after the run. Reuse a running server, or say so.
-* ☐ **The firmware's size**: the PC readmes and release notes say about
-  180 MB, the Android setup screen 190 MB (128 + 54 MB = 182).
-* ☐ **Not checked in 0.6.0**: #26 on Android (the built-in pad through
-  `sendevent`), and the support spells with RT as a second D-pad up.
-* ☐ **Ad Hoc WAN latency and loss spike** (16a.0 in [11-online](11-online.md)):
+  02-baseline. The foreground RDP run held at 31–33 fps. On the physical
+  console, ST16A measured 56 fps median with and without focus, with
+  WDDM engine clock medians of 948 and 967 MHz. Foreground ST03A measured
+  59.5 fps median at 1,017 MHz.
+* ☑ **`--android` and a running adb server**: setup uses installed SDK
+  adb when available. If it needs the bundled version and detects a
+  server, it warns about a possible version conflict. Windows
+  `--android --push-only` installed a scratch APK and copied its ten
+  modules with the SDK's 37.0.1 daemon and wireless Thor transport intact.
+* ☑ **The firmware's size**: the Android setup screen now says about
+  180 MB, matching the PC readmes and release notes.
+* ☑ **#26 on Android**: the Thor's built-in pad bound RT as the second
+  D-pad Up input through Controls. Both physical inputs opened the
+  Support Spell overlay in ST03A with Giant's Arm active, using
+  `sendevent` with the app focused on display 0.
+* ☑ **Ad Hoc WAN latency and loss spike** (16a.0 in [11-online](11-online.md)):
   measure the existing `lan` + VPN path with clumsy / `tc netem` at
   50/100/200 ms RTT and 1–5 % loss through a full quest; look for the
   ~24 ms XLink Kai ping patch's eboot change (`overrides/eboot.json` fix in
   0.6.1 if a limit shows up and passes a quest); record Ad Hoc socket types
   and whether `adhoc_matching` payloads carry IP addresses (`net_trace`).
-* ☐ **30-vs-60 fps constant-scan check** (Phase 8 above, 01-research
-  "1/30 s and 960/544 constants in the eboot"): check in play whether the
-  unscaled reads of global 30.0 at `0x81c9a484` (the Blitz family's movers,
-  the journal's episode playback, `MagicBullet`'s projectiles) run fast at
-  60 fps, and patch any confirmed bug via `overrides/eboot.json`.
+  Both Deck copies cleared a regular quest at 50 ms RTT / 1% loss
+  and 100 ms / 3%. Both cleared the *Founder in Forest* Blank Page at
+  100 ms / 3%, with matching 1:59 results. At 200 ms / 5%, all four
+  cleared a quest after one guest rejoined the room. On an earlier run
+  the fourth guest stayed in combat after the others cleared. Matching
+  used P2P datagrams with peer IPv4 addresses in the payload. Measurements
+  are in [11-online](11-online.md).
+* ☑ **30-vs-60 fps constant-scan check** (Phase 8 above,
+  [01-research](01-research.md)). With the D30 overrides loaded, the
+  Firebird Pinion+ cast moved about ten units at both rates. The same
+  journal page advanced at real time, the Fire Dragon Egg had similar
+  active times and Red Hood's chains lasted a median 1.605 and 1.596
+  seconds in the moving state. No new timing bug was confirmed in
+  these runs.
 
 ## Phase 16 — Online multiplayer without a VPN (overlay first, Play Online later) ☐
 
@@ -1506,13 +1544,14 @@ are closed (same code paths); 16a.0 (scheduled in 0.6.1 above) passes.
 
 ### Part 1 — P2P overlay under Ad Hoc Play (L, ~12–20 sessions) ☐
 
-* ☐ **16a.0 Latency and loss spike (go/no-go, before overlay code)**:
+* ☑ **16a.0 Latency and loss spike (go/no-go, before overlay code)**:
   on hardware, Ad Hoc needed an eboot patch for a ~24 ms XLink Kai ping
   limit. Measure the existing `lan` + VPN path with clumsy / `tc netem` at
   50/100/200 ms RTT and 1–5 % loss through a full quest; look for the
   XLink Kai patch's eboot change; record Ad Hoc socket types (datagram vs.
   `SOCK_STREAM_P2P`) and whether `adhoc_matching` payloads carry IP
-  addresses (`net_trace`). No-go if 100 ms is unplayable without a patch.
+  addresses (`net_trace`). The regular and Blank Page clears passed
+  the 100 ms playability gate with the existing LLE hook.
 * ☐ **16a.1 Transport library** (`third_party/vita3k/vita3k/net/online/`):
   port/adapt the encrypted P2P overlay (session-wide `198.18.0.0/15`
   virtual IPs derived from public keys, single-WAN-port vport framing,

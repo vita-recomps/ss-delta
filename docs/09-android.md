@@ -593,9 +593,12 @@ A player has a release folder, not the project. The pieces for that:
   for Windows, Linux and macOS (SHA-1 from Google's
   `repository2-3.xml` checked, SHA-256 pinned); `android.py fetch-adb`.
   It comes under the Android SDK License Agreement, which the player
-  accepts (`--accept-android-sdk-license`, or the window's box), as
-  Microsoft's on Windows. The setup stops adb's server at the end, so its
-  downloads can be deleted.
+  accepts (`--accept-android-sdk-license`, or the window's box) if setup
+  needs to download it. Setup looks for an existing adb on PATH or in the
+  Android SDK and leaves its server running. When setup must download adb
+  and finds a running server, it warns that a version mismatch can make
+  adb replace the server and drop wireless devices. Setup only stops a
+  server it started with its own download.
 * **`android.py`**: `--pair <ip:port> --code <code>` (wireless debugging's
   pairing dialog; adb then finds the device by mDNS within seconds) and
   `--connect`; one device listed twice (its address and its mDNS name,

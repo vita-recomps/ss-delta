@@ -64,6 +64,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            third_party/vita3k/android/gradle/wrapper/gradle-wrapper.properties
+            third_party/vita3k/vita3k/game-frontend/android/*.gradle
+            third_party/vita3k/vita3k/game-frontend/android/*.gradle.kts
 
       # Vita3K's language catalog generator needs Python 3.12
       - uses: actions/setup-python@v6
@@ -93,7 +98,7 @@ jobs:
           path: build/android/downloads
           key: ${{ steps.tools-cache.outputs.cache-primary-key }}
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         timeout-minutes: 5
 
       - name: NDK r29, platform 35, build-tools 35, Ninja
@@ -104,12 +109,22 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" "platforms;android-35" "build-tools;35.0.0" > /dev/null
           echo "NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
-      - name: Build libss-delta.so (NDK, games only)
+      - uses: ./.github/actions/vita3k-dependencies
+        timeout-minutes: 10
+        with:
+          build: build/vita3k-android
+          ffmpeg: ffmpeg-android-arm64.zip
+
+      - name: Configure Android
+        timeout-minutes: 31
         run: |
-          cmake -S third_party/vita3k -B build/vita3k-android -G Ninja \
+          python -I tools/ci-retry.py --attempts 3 --minutes 10 -- cmake -S third_party/vita3k -B build/vita3k-android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=28 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVITA3K_GAMES_ONLY=ON \
             -DUSE_DISCORD_RICH_PRESENCE=OFF
+
+      - name: Build libss-delta.so (NDK, games only)
+        run: |
           cmake --build build/vita3k-android --target ss-delta
           sccache --show-stats
           # the game's library and libadrenotools' hooks beside it (add_game), without debug info
@@ -126,8 +141,21 @@ jobs:
           python -I third_party/recomp/tools/android-build-tools.py third_party/recomp/tools/android-build-tools.json \
             build/android/buildtools --ndk "$NDK" --project . --cache build/android/downloads
 
+      - uses: actions/cache@v6
+        timeout-minutes: 5
+        with:
+          path: build/android/host-zig/downloads
+          key: android-host-zig-${{ hashFiles('third_party/recomp/tools/toolchain-linux.json') }}
+
+      - name: Test the Android AOT build
+        timeout-minutes: 23
+        run: |
+          python -I tools/ci-retry.py --attempts 3 --minutes 5 -- python -I third_party/recomp/tools/toolchain.py fetch third_party/recomp/tools/toolchain-linux.json build/android/host-zig
+          python -I tools/ci-retry.py --attempts 3 --minutes 2 -- python -m pip install --disable-pip-version-check capstone==5.0.7 PyYAML==6.0.3
+          python -I third_party/recomp/recomp/tests/smoke_module.py --android build/android/host-zig
+
       - name: Pack and sign the APK
-        timeout-minutes: 20  # Gradle downloads its plugins
+        timeout-minutes: 25
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -140,17 +168,18 @@ jobs:
           code=${code:-${{ github.run_number }}}
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            trap 'rm -f "$RUNNER_TEMP/release.jks"' EXIT
             export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
           elif [ "${{ github.ref_type }}" = tag ]; then
             echo "::error::no release key (secrets.ANDROID_KEYSTORE_BASE64): a release APK must be signed with it"; exit 1
           else
             echo "::warning::no release key: the APK is signed with a debug key and can't update a release's install"
           fi
-          bash third_party/vita3k/android/gradlew -p third_party/vita3k/vita3k/game-frontend/android assembleRelease \
-            --console=plain -Pgame=ss-delta -PapplicationId=io.github.vitarecomps.ssdelta -PappName=ss-delta \
+          python -I tools/ci-retry.py --attempts 3 --minutes 8 -- \
+            bash third_party/vita3k/android/gradlew -p third_party/vita3k/vita3k/game-frontend/android assembleRelease \
+            --no-daemon --console=plain -Pgame=ss-delta -PapplicationId=io.github.vitarecomps.ssdelta -PappName=ss-delta \
             -PversionName="${version#v}" -PversionCode="$code" -PjniLibsDir="$PWD/build/android/jniLibs" \
             -PbuildToolsDir="$PWD/build/android/buildtools"
-          rm -f "$RUNNER_TEMP/release.jks"
           name="ss-delta-$version-android.apk"
           mkdir -p build/release
           cp third_party/vita3k/vita3k/game-frontend/android/build/outputs/apk/release/game-frontend-release.apk "build/release/$name"
@@ -209,13 +238,26 @@ jobs:
           path: build/release/setup-downloads
           key: ${{ steps.setup-cache.outputs.cache-primary-key }}
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         timeout-minutes: 5
+
+      - uses: ./.github/actions/vita3k-dependencies
+        timeout-minutes: 10
+        with:
+          build: build/vita3k-games
+          ffmpeg: ffmpeg-windows-x64.zip
+
+      - name: Configure Windows
+        timeout-minutes: 31
+        run: python -I tools/ci-retry.py --attempts 3 --minutes 10 -- python -I third_party/recomp/tools/build-vita3k.py --games-only --configure-only --runtime-tests
 
       - name: Build ss-delta.exe (games only, no Qt)
         shell: pwsh
         run: |
-          python -I third_party/recomp/tools/build-vita3k.py --games-only --target ss-delta
+          python -I third_party/recomp/tools/build-vita3k.py --games-only --target ss-delta cooperative_pause_tests kernel_pause_tests audio_pause_tests
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir build/vita3k-games -C RelWithDebInfo -R '^(cooperative_pause|kernel_pause|audio_pause)$' --output-on-failure
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           sccache --show-stats
 
       - name: Wait for the APK
@@ -245,6 +287,10 @@ jobs:
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           [IO.File]::WriteAllText("$PWD/build/release/$name.zip.sha256", "$hash  $name.zip`n")  # LF, for sha256sum -c
           "ZIP=$zip" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Test the shipped Windows toolchain
+        timeout-minutes: 8
+        run: build/release/ss-delta/setup/python/python.exe -I third_party/recomp/recomp/tests/smoke_module.py build/release/ss-delta/setup/toolchain
 
       - uses: actions/attest-build-provenance@v3
         timeout-minutes: 10
@@ -303,12 +349,23 @@ jobs:
           path: build/release/setup-downloads
           key: ${{ steps.setup-cache.outputs.cache-primary-key }}
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         timeout-minutes: 5
+
+      - uses: ./.github/actions/vita3k-dependencies
+        timeout-minutes: 10
+        with:
+          build: build/vita3k-games
+          ffmpeg: ffmpeg-linux-x64.zip
+
+      - name: Configure Linux
+        timeout-minutes: 31
+        run: $PY -I tools/ci-retry.py --attempts 3 --minutes 10 -- $PY -I third_party/recomp/tools/build-vita3k.py --configure-only --runtime-tests
 
       - name: Build ss-delta.x86_64
         run: |
-          $PY -I third_party/recomp/tools/build-vita3k.py --target ss-delta
+          $PY -I third_party/recomp/tools/build-vita3k.py --target ss-delta cooperative_pause_tests kernel_pause_tests audio_pause_tests
+          ctest --test-dir build/vita3k-games -C RelWithDebInfo -R '^(cooperative_pause|kernel_pause|audio_pause)$' --output-on-failure
           sccache --show-stats
 
       - name: Wait for the APK
@@ -336,6 +393,10 @@ jobs:
           tgz="build/release/$name.tar.gz"
           (cd build/release && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "TGZ=$tgz" >> "$GITHUB_ENV"
+
+      - name: Test the shipped Linux toolchain
+        timeout-minutes: 8
+        run: build/release/ss-delta/setup/python/bin/python3 -I third_party/recomp/recomp/tests/smoke_module.py build/release/ss-delta/setup/toolchain
 
       - uses: actions/attest-build-provenance@v3
         timeout-minutes: 10
@@ -388,15 +449,26 @@ jobs:
 
       # Ninja from PyPI, pinned (Homebrew updates itself first, which took minutes)
       - name: Ninja
-        timeout-minutes: 5
-        run: python -m pip install --disable-pip-version-check ninja==1.13.2
+        timeout-minutes: 7
+        run: python -I tools/ci-retry.py --attempts 3 --minutes 2 -- python -m pip install --disable-pip-version-check ninja==1.13.2
 
-      - uses: mozilla-actions/sccache-action@v0.0.11
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         timeout-minutes: 5
+
+      - uses: ./.github/actions/vita3k-dependencies
+        timeout-minutes: 10
+        with:
+          build: build/vita3k-games
+          ffmpeg: ffmpeg-macos-arm64.zip
+
+      - name: Configure macOS
+        timeout-minutes: 31
+        run: python -I tools/ci-retry.py --attempts 3 --minutes 10 -- python -I third_party/recomp/tools/build-vita3k.py --configure-only --runtime-tests
 
       - name: Build ss-delta.arm64
         run: |
-          python -I third_party/recomp/tools/build-vita3k.py --target ss-delta
+          python -I third_party/recomp/tools/build-vita3k.py --target ss-delta cooperative_pause_tests kernel_pause_tests audio_pause_tests
+          ctest --test-dir build/vita3k-games -C RelWithDebInfo -R '^(cooperative_pause|kernel_pause|audio_pause)$' --output-on-failure
           sccache --show-stats
 
       - name: Wait for the APK
@@ -424,6 +496,10 @@ jobs:
           tgz="build/release/$name.tar.gz"
           (cd build/release && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
           echo "TGZ=$tgz" >> "$GITHUB_ENV"
+
+      - name: Test the shipped macOS toolchain
+        timeout-minutes: 8
+        run: build/release/ss-delta/setup/python/bin/python3 -I third_party/recomp/recomp/tests/smoke_module.py build/release/ss-delta/setup/toolchain
 
       - uses: actions/attest-build-provenance@v3
         timeout-minutes: 10

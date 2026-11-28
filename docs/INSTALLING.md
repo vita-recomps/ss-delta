@@ -454,13 +454,16 @@ touchscreen (left button front, right button rear). Once captured (Tab or a
 middle click), it hides and moving the mouse turns the camera. The settings
 menu's Mouse page (`[mouse]`) holds Mouse camera (off: the mouse is only the
 touchscreen), Capture key, Sensitivity, Invert vertical and Hide idle
-cursor.
+cursor. Capture key accepts mouse buttons too. If a capture shortcut
+also has a game binding, the game binding wins and middle-click still
+captures the cursor.
 
 **Changing the bindings:** the settings menu's **Controls** page (F1, or
 View held for a second) lists each Vita button with its key, a second key,
 its gamepad button and a second gamepad button, and the Black Rite below
-them. Up/Down picks a control, Left/Right a column; Cross, then press the
-new key, mouse button, gamepad button or trigger (Esc cancels). Square
+them. Up/Down picks a control and Left/Right picks a column. Press Cross
+or Enter in the menu, then the new key, mouse button, gamepad button or
+trigger (Esc cancels). Square
 clears the selected one, Triangle puts that control back to its defaults,
 and **Reset all controls** at the bottom (Cross twice) all of them. A key or
 button another control already has changes places with it, so nothing is

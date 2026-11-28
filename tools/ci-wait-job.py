@@ -34,6 +34,15 @@ def main():
     while True:
         try:
             job = next((j for j in jobs() if j['name'] == a.job), None)
+        except urllib.error.HTTPError as e:
+            # GitHub also uses 403 for rate limiting.
+            headers = e.headers or {}
+            retryable = e.code in (408, 429) or e.code >= 500 or (
+                e.code == 403 and (headers.get('Retry-After') or headers.get('X-RateLimit-Remaining') == '0'))
+            print(f'jobs: {e}', flush=True)
+            if not retryable:
+                return 1
+            job = None
         except (OSError, ValueError, KeyError) as e:  # the API had a moment; ask again
             print(f'jobs: {e}', flush=True)
             job = None

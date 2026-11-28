@@ -96,15 +96,22 @@ with Python 3.12). `--apk <file>` adds the game's Android APK as
 a device ([09-android](09-android.md)). Pushing a tag `v*` runs
 `.github/workflows/release.yml`, which builds the APK (NDK r29 on Ubuntu,
 Gradle) and all three archives on GitHub, with their SHA-256 and build
-attestations, into a draft release. Each job downloads first, in
-attempts of 5 minutes (`tools/ci-retry.py`; the kit moves on to a mirror
-when a source is slower than 256 KB/s), and keeps the downloads in the
-Actions cache until their lock files change; the compilers run through
-sccache; the PC jobs build while the APK is made and wait for it
+attestations, into a draft release. Each job retries timed downloads
+and configure steps with `tools/ci-retry.py`. The kit tries a mirror
+when a source is slower than 256 KB/s and retries slow sources without
+the speed floor if the mirrors fail. Actions caches the SDK downloads,
+Vita3K's configure dependencies and Gradle's dependencies. The
+compilers run through sccache. The PC jobs build while the APK is made and wait for it
 (`tools/ci-wait-job.py`) only to lay out the setup (#27). Its notes are
 `.github/release-notes/<tag>.md` when that file exists (write it before
 tagging), else a short default text. Add the release to `CHANGELOG.md`
 too, with the issues each change answers.
+
+Each PC job builds, loads and runs a synthetic recompiled module with
+the Zig copy in the release folder. The Android job builds that module
+with the Android flags and checks the resulting ELF for text
+relocations, exports and unsupported C++ symbols. The draft checks
+below also cover the APK's on-device compiler.
 
 The APK is signed with the project's release key, from the repository's
 secrets `ANDROID_KEYSTORE_BASE64` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`,

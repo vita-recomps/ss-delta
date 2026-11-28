@@ -164,6 +164,44 @@ address would be published.
     whether `adhoc_matching` packets carry IP addresses in their payload.
   * **Go / no-go:** playable at 100 ms RTT (with or without a patch), or
     stop here and reconsider Part 2 (`SceLibRudp`) as the WAN route.
+  * **0.6.1 test observations (2026-11-27).** Two isolated Steam Deck
+    copies created and joined a room and finished *Croaking Fiends in
+    the Forest* through a private `tc netem` loopback. Both reached the
+    results screen with the same 10:09 clear time. The trials used
+    copied saves, invincibility and the damage modifier. Netem applied
+    25 ms one-way delay and 1% configured loss, and the measured RTT
+    was 50.1 ms. The existing LLE hook raised both peers'
+    matching retransmit intervals from 8 to 250 ms.
+  * At 100.1 ms measured RTT and 3% configured loss, two copies created
+    and joined a room and finished *Croaking Fiends in the Forest* with
+    the same 00:34 clear time. In a separate room with the same parameters,
+    both copies received the Blank Page pact *Cobblers in Town Center*
+    and stayed in combat together. The input driver could not navigate
+    to the final target. Both copies also entered *Snakeman at Island*
+    and remained connected, but the driver stalled on terrain on the way
+    to the Hydra. A third Blank Page run, *Founder in Forest* at 100.1 ms
+    and 3% loss, defeated Odin and displayed the same 1:59 clear time
+    on both clients.
+  * At 200.2 ms measured RTT and 5% configured loss, three guests joined
+    the host. One guest returned to the Ad Hoc menu while the host was
+    browsing pacts. The guest rejoined and all four fought in the regular
+    quest and reached its end transition. The harness expired before a
+    results-screen capture. The cause of the guest departure is unverified.
+    On a repeat at 200.1 ms and 5% loss, all four entered combat. The host
+    and two guests showed the same 00:32 clear time. The fourth guest
+    remained in combat after calling `sceNetCtlAdhocDisconnect`, with
+    the other players absent. The trigger for the disconnect is unverified.
+    A third run at 200.1 ms and 5% loss completed on all four clients after
+    one guest rejoined the room. The host and two guests reported 00:46
+    and the rejoined guest reported 00:45.
+  * The auth, `UDP_NetId` and matching socket creations in this run all
+    used type 6 (`SOCK_DGRAM_P2P`). The loopback capture matched the peer
+    IPv4 bytes at payload offset 0 in discovery traffic (UDP 36992 to
+    36991), and at offsets 4 and 8 in matching traffic (3660 to 3659).
+    An overlay therefore needs consistent IPv4 addresses in those paths.
+  * Both the regular and Blank Page clears meet the 100 ms playability
+    gate with the current LLE hook. These trials did not show a fixed
+    latency threshold that would justify an additional eboot override.
 * **16a.1 Transport library (`vita3k/net/online/`):**
   * Port/adapt `crypto` (vendored Monocypher: X25519 +
     XChaCha20-Poly1305), `stun`, `upnp`, `discovery` (LAN multicast),

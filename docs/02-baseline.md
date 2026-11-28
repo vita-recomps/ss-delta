@@ -2205,3 +2205,47 @@ Shinobido 2's pkgs when it was written (the commit message). On the Thor
 * Not checked on the device: a right licence through the same path (none
   here for the EU pack), an update's fallback to the game's installed
   licence.
+
+## ST16A and ST03A on the Radeon 760M (2026-11-27)
+
+Windows scratch install, Vulkan at 1920×1088, 60 fps target, sampled from
+45 seconds after the unattended Stage Select run began. All three runs
+executed on NativeCPU with zero native-to-JIT calls. This fixture used
+the older eboot that temporarily returned to 30 fps while loading. The
+log showed the switch back to a 60 fps target before the sample window.
+
+| Map | Samples | Median fps | Range |
+| --- | ---: | ---: | ---: |
+| ST16A, first run | 38 | 49 | 34–53 |
+| ST16A, second run | 41 | 54 | 51–56 |
+| ST03A | 42 | 32 | 31–33 |
+
+ST03A also stayed around 32 fps at 960×544 with the eboot that includes
+the loading-screen fix. With that eboot at 1920×1088, ST16A measured
+31–33 fps across 40 samples. The window was foregrounded for the last
+21 seconds and the rate held steady through that change. The matching
+ST03A run measured 32–33 fps. The AMD interfaces returned no GPU clock
+reading. The owner confirmed these runs were through Windows Remote
+Desktop, where the 32 fps cap is a known quirk on this PC.
+
+The physical Windows console was tested at the same resolution and in-game
+target with the loading-screen fix active. Window focus was recorded per
+sample and engine 0 clock was read through Windows' WDDM node telemetry.
+
+| Map and focus | Samples | Median fps | fps range | Median clock |
+| --- | ---: | ---: | ---: | ---: |
+| ST16A, foreground | 40 | 56 | 54–57 | 948 MHz |
+| ST16A, unfocused | 22 | 56 | 53–57 | 967 MHz |
+| ST03A, foreground | 28 | 59.5 | 59–60 | 1,017 MHz |
+
+The same ST16A session had a median of 56 fps in both focus states.
+The physical session removed the 32 fps cap and ST16A still ran slower
+than ST03A in these scenes. The comparison sampled the full scenes, so
+the specific cost of rain remains unmeasured.
+
+In later scratch runs on the same console, Windows logged two new
+`LiveKernelEvent 141` GPU engine timeouts within seconds of closing
+60 fps Vulkan sessions. The valid ST03A performance run had already
+finished. The gameplay check at 30 fps produced no new watchdog report.
+The timing points to shutdown as a possible trigger. The event records
+do not identify the GPU command that stalled.
