@@ -4,6 +4,66 @@ The changes in each release of ss-delta. The downloads and each release's
 full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/releases);
 [INSTALLING](docs/INSTALLING.md#updating) explains how to update.
 
+## Unreleased
+
+### Fixed
+
+* **Audio during an Ad Hoc Play pause**: opening the settings menu (or
+  pausing) during Ad Hoc Play now mutes the audio ports while keeping the
+  audio device draining at its normal rate, instead of suspending the
+  device while guest threads keep running. Offline pauses still suspend
+  the device.
+* **Controls page fixes**:
+  * Binding `leftstick`, `rightstick` or `guide` to a Vita button or a
+    touch binding (such as Black Rite) no longer triggers L3, R3 or PS as
+    well.
+  * `[mouse] capture_key` now accepts mouse buttons too, and a game
+    binding on the same key takes priority over cursor capture
+    (middle-click still captures the cursor).
+  * Touch- and pen-generated clicks on a touchscreen PC or Steam Deck are
+    ignored while waiting for a new key binding, instead of binding
+    `MouseLeft`.
+  * Enter always confirms in the desktop settings menu, so clearing both
+    Cross and Start can no longer leave a keyboard-only player stuck.
+  * Live gamepad binding edits now share a mutex with guest controller
+    reads while the game runs behind the menu during Ad Hoc Play.
+* **A dump carrying a rePatch mod with a standalone title folder**
+  (`PCSA00152/`, with no `app/` folder, including wrapped dumps and mods
+  carrying a `param.sfo`) now installs both the game and the mod instead
+  of only the mod.
+* **A rare shutdown hang** when the display queue was full:
+  `Queue::abort()` now holds the queue's mutex while updating its abort
+  flag so blocked `push()` and `wait_space()` callers cannot miss the
+  wakeup.
+* **Stale setup error messages**: `step-error.txt` is now cleared before
+  each install step on PC and Android so a later crash cannot report an
+  earlier run's licence error.
+* **Compiler downloads on slow lines**: a source dropped for being slower
+  than 256 KB/s is retried without the speed floor if all mirrors fail,
+  and the Windows `curl.exe` speed-limited attempt no longer retries
+  three times before moving on.
+* **Android: firmware size text**: the setup screen now says about
+  180 MB, matching the PC readmes and release notes.
+
+### Changed
+
+* **`--android` setup and `adb`**: reuses an `adb` already installed on
+  `PATH` or in the Android SDK (skipping Google's SDK licence prompt and
+  leaving its server running). When setup must download `adb` while an
+  existing server is running, it warns about a possible version conflict
+  instead of stopping that server.
+* **Recompiler and macOS modules**: ARM jump-table decoding verifies that
+  the preceding `cmp` matches the index register with a valid bound;
+  macOS recompiled `.dylib` modules narrow their Mach-O export trie to
+  the two AOT entry points (`armrecomp_aot_init`,
+  `armrecomp_aot_features`) and renew their ad-hoc signature.
+* **Tests and release workflow**: the pause, audio-pause and queue unit
+  tests are wired into CMake/CTest and run on every PC release job; all
+  four release jobs build and check a synthetic AOT module with the
+  shipped Zig toolchain; configure dependencies and Gradle are cached and
+  bounded with retries, `ci-wait-job.py` fails fast on permanent GitHub
+  API errors, and `sccache-action` is pinned by commit SHA.
+
 ## 0.6.0 (2026-11-26)
 
 ### New
