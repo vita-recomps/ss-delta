@@ -1780,8 +1780,15 @@ platforms.
     (2026-11-26, fork `41475130`): it went on there at more CPU than in
     front; on the Thor 240% → 11%.
 * **Offered in #29** (ELLINDON's Android build), welcome as separate PRs:
-  * ☐ A diagnostics export on Android (the setup's and the game's logs,
-    the device, shared through a content provider).
+  * ☑ A diagnostics export on Android (2026-11-28): ELLINDON's PR
+    vita-recomps/Vita3K#2, merged with maintainer polish as fork `165cd6a8`
+    (async log flush before in-game export, no `< >` arrows on action rows,
+    horizontal `BuildActivity` buttons, dark monospace preview dialog,
+    double-tap guard). Java host tests pass; verified on the Thor with a
+    focused debug APK (failed setup log capture, preview-to-share reuse,
+    unprivileged `exported="false"` rejection, Report A URI immutability
+    through Material Files after generating Report B, and in-game Debug
+    share + resume).
   * ☑ An FPS counter (2026-11-26, fork `fbb38768`): `[display]
     fps_counter`, Vita3K's performance overlay at its four detail levels,
     live from the menu, on every game's Display page.

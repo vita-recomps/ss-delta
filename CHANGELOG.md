@@ -6,6 +6,18 @@ full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/r
 
 ## Unreleased
 
+### New
+
+* **Android: view and share diagnostic reports**
+  ([#29](https://github.com/vita-recomps/ss-delta/issues/29),
+  [Vita3K#2](https://github.com/vita-recomps/Vita3K/pull/2), contributed by
+  ELLINDON): the setup screen has **View diagnostic report** and **Share
+  diagnostic report**, and the settings menu's Debug page has **Share
+  diagnostic report**. Each report writes an immutable snapshot of device
+  details and bounded tails of the setup and game logs (omitting matching
+  licence-key lines) and shares it through a non-exported read-only content
+  provider, so Android issues can be reported without USB/adb.
+
 ### Fixed
 
 * **Audio during an Ad Hoc Play pause**: opening the settings menu (or
