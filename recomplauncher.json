@@ -44,7 +44,7 @@
     "done": [
       "{install}/ss-delta/build.json"
     ],
-    "version": "v0.6.0",
+    "version": "v0.6.1",
     "options": []
   },
   "config": [
@@ -111,9 +111,11 @@
     },
     {
       "id": "frame_rate", "label": "Frame rate", "group": "Display",
-      "help": "60 keeps the game's speed. 30 is the Vita's rate.",
+      "help": "60 is the default. 90 and 120 are for high-refresh displays. 30 is the Vita's rate.",
       "choices": [
         { "label": "60 FPS", "set": { "display/frame_rate": "60" } },
+        { "label": "90 FPS", "set": { "display/frame_rate": "90" } },
+        { "label": "120 FPS", "set": { "display/frame_rate": "120" } },
         { "label": "30 FPS, as on the Vita", "set": { "display/frame_rate": "30" } }
       ],
       "defaults": { "display/frame_rate": "60" }
@@ -129,11 +131,12 @@
     },
     {
       "id": "filter", "label": "Scaling filter", "group": "Display",
-      "help": "How the picture is fitted to the window. FSR sharpens it; FXAA smooths edges; Nearest keeps pixels sharp.",
+      "help": "How the picture is fitted to the window. FSR and CAS sharpen the picture. FXAA smooths edges. Nearest keeps pixels sharp.",
       "choices": [
         { "label": "Bilinear", "set": { "display/filter": "Bilinear" } },
         { "label": "Bicubic", "set": { "display/filter": "Bicubic" } },
         { "label": "FSR", "set": { "display/filter": "FSR" } },
+        { "label": "CAS", "set": { "display/filter": "CAS" } },
         { "label": "FXAA", "set": { "display/filter": "FXAA" } },
         { "label": "Nearest", "set": { "display/filter": "Nearest" } }
       ],

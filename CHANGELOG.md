@@ -4,7 +4,7 @@ The changes in each release of ss-delta. The downloads and each release's
 full notes are on the [releases page](https://github.com/vita-recomps/ss-delta/releases);
 [INSTALLING](docs/INSTALLING.md#updating) explains how to update.
 
-## Unreleased
+## 0.6.1 (2026-11-28)
 
 ### New
 
